@@ -1,1181 +1,559 @@
 {
-  "title": "W1: WebGL 渲染管线",
+  "title": "W1D1: WebGPU 基础",
   "chapters": [
     {
-      "id": "day-1",
-      "title": "D1: WebGL 基础与渲染架构",
+      "title": "WebGPU vs WebGL — 为什么要切换",
       "sections": [
         {
           "type": "heading",
           "level": 2,
-          "text": "1. WebGL 基础概念"
+          "text": "WebGL 的历史包袱"
         },
         {
           "type": "paragraph",
-          "text": "WebGL 是浏览器对 OpenGL ES 2.0/3.0 的 JavaScript 绑定，它提供了一套底层图形 API，允许开发者直接操作 GPU 进行 2D/3D 渲染。与 Canvas 2D 的立即模式不同，WebGL 是一个**状态机（State Machine）**——你设置好状态后，后续的绘制命令都基于当前状态执行。"
+          "text": "如果你有前端开发经验，可能已经用过 WebGL —— 它是 OpenGL ES 在浏览器中的映射，诞生于 2011 年。WebGL 的核心设计基于一个「全局状态机」模型：所有的渲染状态（混合模式、深度测试、绑定的纹理等）都存储在全局上下文中，每次绘制前都需要逐一设置。"
         },
         {
           "type": "paragraph",
-          "text": "在 miu2d 引擎中，WebGLRenderer 是对 Canvas 2D 的高性能替代。它的核心设计思路是：用**批量渲染（Batch Rendering）**替代逐个 drawImage 调用。根据注释，地图瓦片场景从 ~4800 次 drawImage 合并到 ~1-5 次 draw call，这是数量级的性能提升。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/webgl-renderer.ts",
-          "startLine": 1,
-          "endLine": 15,
-          "caption": "WebGLRenderer 模块头部注释 — 描述核心设计",
-          "highlights": [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "WebGL 渲染管线的基本流程是：**创建上下文 → 编译着色器 → 创建缓冲区 → 设置状态 → 提交绘制命令**。每个 draw call（一次 gl.drawArrays 或 gl.drawElements 调用）都有固定的 CPU-GPU 通信开销，因此减少 draw call 次数是 WebGL 性能优化的核心。"
-        },
-        {
-          "type": "note",
-          "text": "关键理解：WebGL 的性能瓶颈通常不在 GPU 计算，而在 CPU-GPU 之间的命令提交。每次 draw call 涉及状态切换、数据上传等固定开销。批处理的本质就是把多个小绘制合并成一次大的 draw call。"
-        },
-        {
-          "type": "table",
-          "headers": [
-            "概念",
-            "说明",
-            "在 miu2d 中的对应"
-          ],
-          "rows": [
-            [
-              "Draw Call",
-              "一次 gl.drawArrays/gl.drawElements 调用",
-              "SpriteBatcher.flush()"
-            ],
-            [
-              "State Machine",
-              "WebGL 记住当前绑定的 program/texture/buffer",
-              "GLStateCache"
-            ],
-            [
-              "Shader Program",
-              "顶点着色器 + 片段着色器的组合",
-              "SpriteProgram / RectProgram"
-            ],
-            [
-              "Texture",
-              "GPU 上的图像数据",
-              "WebGLTextureEntry"
-            ],
-            [
-              "Vertex Buffer",
-              "GPU 上的顶点数据",
-              "SpriteBatcher.vbo"
-            ]
-          ]
-        },
-        {
-          "type": "heading",
-          "level": 2,
-          "text": "2. 上下文初始化参数"
-        },
-        {
-          "type": "paragraph",
-          "text": "WebGL 上文创建时可以传入一组上下文属性（Context Attributes），这些属性决定了渲染行为和性能特征。在 miu2d 中，init() 方法使用了以下参数："
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/webgl-renderer.ts",
-          "startLine": 145,
-          "endLine": 157,
-          "caption": "上下文创建 — 注意每个参数的选择理由",
-          "highlights": [
-            146,
-            147,
-            148,
-            149,
-            150,
-            151,
-            152,
-            153,
-            154,
-            155,
-            156,
-            157
-          ]
-        },
-        {
-          "type": "table",
-          "headers": [
-            "参数",
-            "值",
-            "含义与选择理由"
-          ],
-          "rows": [
-            [
-              "alpha",
-              "false",
-              "不需要 canvas 透明背景。禁用后 WebGL 不分配 alpha 通道的 framebuffer，节省显存和合成开销"
-            ],
-            [
-              "antialias",
-              "false",
-              "像素风格不需要抗锯齿。抗锯齿会增加 GPU 采样次数，对于像素游戏反而破坏锐利感"
-            ],
-            [
-              "premultipliedAlpha",
-              "true",
-              "预乘 alpha 是 WebGL 标准做法，与 Canvas 2D 输出一致，避免合成伪影"
-            ],
-            [
-              "preserveDrawingBuffer",
-              "true",
-              "保留绘制缓冲区。设为 false 时浏览器可在 swap 后丢弃缓冲，导致 canvas.toDataURL() 截图失败"
-            ],
-            [
-              "powerPreference",
-              "high-performance",
-              "提示浏览器使用独立显卡（如果有）。对于游戏引擎，帧率优先于功耗"
-            ]
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "创建上下文后，引擎立即进行一系列初始化设置：设置 viewport、启用 alpha 混合、禁用深度测试和面剔除（2D 渲染不需要这些 3D 功能）。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/webgl-renderer.ts",
-          "startLine": 182,
-          "endLine": 201,
-          "caption": "初始化后的 GL 状态设置",
-          "highlights": [
-            182,
-            183,
-            184,
-            185,
-            186,
-            187,
-            188,
-            189,
-            190,
-            191,
-            192,
-            193,
-            194,
-            195,
-            196,
-            197,
-            198,
-            199,
-            200,
-            201
-          ]
-        },
-        {
-          "type": "note",
-          "text": "注意第 200 行的 glState.invalidateProgram() — 因为这里直接调用了 gl.useProgram()，绕过了 GLStateCache，所以必须手动通知缓存失效。这是使用状态缓存时的常见陷阱。"
-        },
-        {
-          "type": "heading",
-          "level": 2,
-          "text": "3. 着色器程序（Shader Program）"
-        },
-        {
-          "type": "paragraph",
-          "text": "着色器是运行在 GPU 上的小程序。WebGL 需要两种着色器配合工作：**顶点着色器（Vertex Shader）**处理每个顶点的位置变换，**片段着色器（Fragment Shader）**决定每个像素的颜色。两者链接成一个 **Program**。"
-        },
-        {
-          "type": "paragraph",
-          "text": "miu2d 引擎内置了两套着色器：精灵着色器（SpriteShader）用于纹理绘制，矩形着色器（RectShader）用于纯色矩形填充。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/shaders.ts",
-          "startLine": 15,
-          "endLine": 40,
-          "caption": "精灵顶点着色器 — 将像素坐标转换为裁剪空间",
-          "highlights": [
-            15,
-            16,
-            17,
-            18,
-            19,
-            20,
-            21,
-            22,
-            23,
-            24,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30,
-            31,
-            32,
-            33,
-            34,
-            35,
-            36,
-            37,
-            38,
-            39,
-            40
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "顶点着色器的核心任务是坐标变换。WebGL 使用标准化设备坐标（NDC），范围是 [-1, 1]。但游戏逻辑使用像素坐标（如 x=320, y=240）。着色器通过 u_resolution uniform 将像素坐标映射到 NDC：`clipSpace = (position / resolution) * 2.0 - 1.0`。注意 Y 轴翻转（`-clipSpace.y`），因为屏幕坐标 Y 向下而 WebGL Y 向上。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/shaders.ts",
-          "startLine": 46,
-          "endLine": 119,
-          "caption": "精灵片段着色器 — 纹理采样 + 颜色滤镜 + 多纹理分发",
-          "highlights": [
-            46,
-            47,
-            48,
-            49,
-            50,
-            51,
-            52,
-            53,
-            54,
-            55,
-            56,
-            57,
-            58,
-            59,
-            60,
-            61,
-            62,
-            63,
-            64,
-            65,
-            66,
-            67,
-            68,
-            69,
-            70,
-            71,
-            72,
-            73
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "片段着色器中有一个重要设计：**多纹理槽位分发**。WebGL1 的 GLSL 不允许 sampler 数组的动态索引，所以必须用 if/else 链按 v_texIndex 分发到 8 个纹理槽位。这使得单个 draw call 可以同时使用最多 8 个不同纹理，大幅减少纹理切换导致的 flush。"
-        },
-        {
-          "type": "paragraph",
-          "text": "着色器编译和链接的流程：先分别编译 vertex 和 fragment shader，检查编译状态，然后 attach 到 program 并 link，最后可以释放 shader 对象（link 后不再需要）。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/shaders.ts",
-          "startLine": 153,
-          "endLine": 175,
-          "caption": "compileShader 函数 — 编译单个着色器",
-          "highlights": [
-            153,
-            154,
-            155,
-            156,
-            157,
-            158,
-            159,
-            160,
-            161,
-            162,
-            163,
-            164,
-            165,
-            166,
-            167,
-            168,
-            169,
-            170,
-            171,
-            172,
-            173,
-            174,
-            175
-          ]
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/shaders.ts",
-          "startLine": 180,
-          "endLine": 219,
-          "caption": "createProgram 函数 — 链接着色器程序",
-          "highlights": [
-            180,
-            181,
-            182,
-            183,
-            184,
-            185,
-            186,
-            187,
-            188,
-            189,
-            190,
-            191,
-            192,
-            193,
-            194,
-            195,
-            196,
-            197,
-            198,
-            199,
-            200,
-            201,
-            202,
-            203,
-            204,
-            205,
-            206,
-            207,
-            208,
-            209,
-            210,
-            211,
-            212,
-            213,
-            214,
-            215,
-            216,
-            217,
-            218,
-            219
-          ]
+          "text": "这种模型带来了几个严重的问题：第一，CPU 端的驱动开销极高，因为驱动需要跟踪和验证每一个状态变更；第二，状态切换非常昂贵，开发者必须手动排序绘制调用来减少状态变化；第三，无法充分利用现代 GPU 的并行能力。"
         },
         {
           "type": "list",
           "items": [
-            "WebGL 着色器使用 GLSL ES 语言（类 C 语法）",
-            "顶点着色器必须设置 gl_Position（裁剪空间坐标）",
-            "片段着色器必须设置 gl_FragColor（输出颜色）",
-            "attribute = 每顶点数据，uniform = 全局常量，varying = 顶点到片段的插值",
-            "着色器编译错误不会抛异常，必须用 getShaderParameter 检查 COMPILE_STATUS"
+            "全局状态机 —— 所有渲染状态共享一个上下文，状态泄漏风险高",
+            "CPU 开销大 —— 驱动需要在每次 draw call 前验证所有状态",
+            "无 Compute Shader —— WebGL 2.0 仍然缺少通用计算能力",
+            "着色器语言限制 —— GLSL 编译在运行时进行，错误处理困难",
+            "单线程模型 —— 所有 GPU 命令必须在主线程提交"
           ]
         },
         {
           "type": "heading",
           "level": 2,
-          "text": "4. WebGL 状态管理"
+          "text": "WebGPU 的架构革新"
         },
         {
           "type": "paragraph",
-          "text": "WebGL 是一个状态机——大部分 API 调用只是修改内部状态，而不是立即执行操作。例如 gl.enable(gl.BLEND) 不会触发绘制，只是告诉 GPU \"后续绘制请启用混合\"。理解这一点对编写正确的 WebGL 程序至关重要。"
-        },
-        {
-          "type": "paragraph",
-          "text": "在 2D 渲染中，最重要的状态是：**混合模式（Blend Mode）**控制颜色如何叠加，**深度测试（Depth Test）**在 2D 中通常禁用，**面剔除（Culling）**在 2D 中也禁用（因为画的是矩形面片，不是 3D 模型）。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/webgl-renderer.ts",
-          "startLine": 184,
-          "endLine": 191,
-          "caption": "init 中的状态设置 — 启用混合，禁用深度和面剔除",
-          "highlights": [
-            184,
-            185,
-            186,
-            187,
-            188,
-            189,
-            190,
-            191
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "混合模式是 2D 渲染中最常用的状态切换。miu2d 支持 4 种混合模式，每种对应不同的 gl.blendFunc 参数："
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/webgl-renderer.ts",
-          "startLine": 871,
-          "endLine": 895,
-          "caption": "applyBlendMode — 混合模式到 WebGL blendFunc 的映射",
-          "highlights": [
-            871,
-            872,
-            873,
-            874,
-            875,
-            876,
-            877,
-            878,
-            879,
-            880,
-            881,
-            882,
-            883,
-            884,
-            885,
-            886,
-            887,
-            888,
-            889,
-            890,
-            891,
-            892,
-            893,
-            894,
-            895
-          ]
-        },
-        {
-          "type": "table",
-          "headers": [
-            "混合模式",
-            "blendFunc 参数",
-            "视觉效果",
-            "典型用途"
-          ],
-          "rows": [
-            [
-              "normal",
-              "SRC_ALPHA, ONE_MINUS_SRC_ALPHA",
-              "标准 alpha 混合",
-              "默认精灵绘制"
-            ],
-            [
-              "multiply",
-              "DST_COLOR, ZERO",
-              "颜色相乘变暗",
-              "地图着色、阴影"
-            ],
-            [
-              "additive",
-              "SRC_ALPHA, ONE",
-              "颜色叠加变亮",
-              "发光、火焰、粒子"
-            ],
-            [
-              "screen",
-              "ONE, ONE_MINUS_SRC_COLOR",
-              "滤色（类似反相相乘）",
-              "光晕、魔法效果"
-            ]
-          ]
-        },
-        {
-          "type": "note",
-          "text": "注意 applyBlendMode 中的脏标记优化（第 874 行）：如果当前混合模式与上次相同，直接跳过 gl.blendFunc 调用。在一帧数千个精灵的场景中，这个简单的缓存可以省掉大量冗余的 GL 调用。"
-        },
-        {
-          "type": "paragraph",
-          "text": "miu2d 使用状态栈（stateStack）来管理渲染状态，类似 Canvas 2D 的 save()/restore()。当混合模式在 restore() 中改变时，必须先 flush 所有待提交的批次，因为不同混合模式的精灵不能合并在同一批次中。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/webgl-renderer.ts",
-          "startLine": 745,
-          "endLine": 759,
-          "caption": "save/restore 状态栈实现",
-          "highlights": [
-            745,
-            746,
-            747,
-            748,
-            749,
-            750,
-            751,
-            752,
-            753,
-            754,
-            755,
-            756,
-            757,
-            758,
-            759
-          ]
-        },
-        {
-          "type": "heading",
-          "level": 2,
-          "text": "5. 帧控制（beginFrame / endFrame）"
-        },
-        {
-          "type": "paragraph",
-          "text": "每一帧的渲染遵循严格的生命周期：beginFrame → 绘制命令 → endFrame。beginFrame 负责重置状态和清屏，endFrame 负责刷新所有待提交的批次并收集统计信息。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/webgl-renderer.ts",
-          "startLine": 276,
-          "endLine": 302,
-          "caption": "beginFrame — 重置统计、清屏、重置混合模式",
-          "highlights": [
-            276,
-            277,
-            278,
-            279,
-            280,
-            281,
-            282,
-            283,
-            284,
-            285,
-            286,
-            287,
-            288,
-            289,
-            290,
-            291,
-            292,
-            293,
-            294,
-            295,
-            296,
-            297,
-            298,
-            299,
-            300,
-            301,
-            302
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "beginFrame 做了几件关键事情：1) 重置 batcher 统计计数器；2) 重置渲染状态到默认值（alpha=1, blendMode=normal, filter=none）；3) 用黑色清屏；4) 重置混合模式为 normal 并同步 GLStateCache。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/webgl-renderer.ts",
-          "startLine": 304,
-          "endLine": 327,
-          "caption": "endFrame — flush 所有批次，汇总统计",
-          "highlights": [
-            304,
-            305,
-            306,
-            307,
-            308,
-            309,
-            310,
-            311,
-            312,
-            313,
-            314,
-            315,
-            316,
-            317,
-            318,
-            319,
-            320,
-            321,
-            322,
-            323,
-            324,
-            325,
-            326,
-            327
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "endFrame 中最关键的是 flush 调用。batcher.flush() 会将积累的顶点数据上传到 GPU 并执行 gl.drawArrays。注意 flush 顺序：先 sprite batcher，再 rect batcher。这是因为两个 batcher 共享 GL 状态缓存，flush 后状态可能改变。"
-        },
-        {
-          "type": "note",
-          "text": "性能统计是调试利器。drawCalls 告诉你一帧有多少次 GPU 绘制调用，textureSwaps 告诉你纹理切换次数。理想情况下，drawCalls 应该尽可能少（通过批合并），textureSwaps 也应该尽量少（通过多纹理槽位）。"
-        },
-        {
-          "type": "heading",
-          "level": 2,
-          "text": "6. 精灵批量渲染（SpriteBatcher）"
-        },
-        {
-          "type": "paragraph",
-          "text": "SpriteBatcher 是整个渲染系统的核心性能组件。它的原理很简单：不立即绘制每个精灵，而是把顶点数据写入一个大的 Float32Array 缓冲区，积累到一定程度后一次性提交给 GPU。这就是所谓的**批处理（Batching）**。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/sprite-batcher.ts",
-          "startLine": 1,
-          "endLine": 42,
-          "caption": "SpriteBatcher 模块头 — 多纹理批处理设计说明",
-          "highlights": [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            16,
-            17,
-            18,
-            19,
-            20,
-            21,
-            22,
-            23,
-            24,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30,
-            31,
-            32,
-            33,
-            34,
-            35,
-            36,
-            37,
-            38,
-            39,
-            40,
-            41,
-            42
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "顶点格式定义了每个顶点包含 7 个 float：[posX, posY, texU, texV, alpha, filterType, texIndex]。每个精灵需要 6 个顶点（2 个三角形组成一个矩形），所以每个精灵占 7 * 6 = 42 个 float = 168 字节。最大批次 8192 个精灵需要约 1.4MB 缓冲区。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/sprite-batcher.ts",
-          "startLine": 137,
-          "endLine": 245,
-          "caption": "draw() 方法 — 将精灵顶点数据写入缓冲区",
-          "highlights": [
-            137,
-            138,
-            139,
-            140,
-            141,
-            142,
-            143,
-            144,
-            145,
-            146,
-            147,
-            148,
-            149,
-            150,
-            151,
-            152,
-            153,
-            154,
-            155,
-            156,
-            157,
-            158,
-            159,
-            160,
-            161,
-            162,
-            163,
-            164,
-            165
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "draw() 方法中的纹理槽位分配逻辑是多纹理批处理的关键。它维护一个 slotMap（TextureId → slotIndex），当一个新纹理到来时：如果已有槽位则复用；如果槽位未满（<8）则分配新槽位；如果 8 个槽位全满则必须先 flush 当前批次，再分配新槽位。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/sprite-batcher.ts",
-          "startLine": 250,
-          "endLine": 307,
-          "caption": "flush() 方法 — 上传数据到 GPU 并执行 draw call",
-          "highlights": [
-            250,
-            251,
-            252,
-            253,
-            254,
-            255,
-            256,
-            257,
-            258,
-            259,
-            260,
-            261,
-            262,
-            263,
-            264,
-            265,
-            266,
-            267,
-            268,
-            269,
-            270,
-            271,
-            272,
-            273,
-            274,
-            275,
-            276,
-            277,
-            278,
-            279,
-            280,
-            281,
-            282,
-            283,
-            284,
-            285,
-            286,
-            287,
-            288,
-            289,
-            290
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "flush() 的执行顺序：1) 绑定着色器程序；2) 设置 sampler uniform（只需一次）；3) 绑定本批次用到的纹理到对应纹理单元；4) 绑定 VAO；5) 上传顶点数据（bufferSubData）；6) 执行 gl.drawArrays。注意第 294-296 行重置 activeTexture 到 TEXTURE0，保护外部代码不被干扰。"
+          "text": "WebGPU 是下一代 Web 图形 API，它的设计目标是：更接近现代 GPU 硬件的真实工作方式，减少 CPU 开销，并支持通用计算。WebGPU 借鉴了 Vulkan、Metal 和 D3D12 的设计理念，但提供了更友好、更安全的 Web 接口。"
         },
         {
           "type": "list",
           "items": [
-            "触发 flush 的条件：纹理槽位满（8个）、精灵数达到上限（8192）、帧结束、混合模式改变",
-            "多纹理批处理的核心价值：同一纹理的精灵不需要 flush，只有新纹理才消耗槽位",
-            "VAO（Vertex Array Object）缓存了顶点属性指针设置，避免每次 flush 重复配置",
-            "bufferSubData 只上传有效数据部分（subarray），不会浪费带宽"
+            "不可变 Pipeline State Object (PSO) —— 渲染管线状态在创建时一次性确定，运行时无需验证",
+            "命令缓冲模型 —— 所有 GPU 命令先录制到 CommandBuffer，再统一提交",
+            "Compute Shader —— 原生支持通用 GPU 计算（粒子系统、物理模拟、后处理等）",
+            "WGSL 着色器语言 —— 专为 Web 设计的安全着色器语言",
+            "隐式同步 —— 驱动自动处理资源同步，开发者无需手动插入屏障"
           ]
         },
         {
           "type": "heading",
           "level": 2,
-          "text": "7. 纹理管理"
-        },
-        {
-          "type": "paragraph",
-          "text": "纹理管理是渲染器的另一大职责。miu2d 的纹理系统支持多种图像源（HTMLCanvasElement、HTMLImageElement、ImageBitmap、ImageData、OffscreenCanvas），并提供了缓存、增量更新和自动清理机制。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/webgl-renderer.ts",
-          "startLine": 537,
-          "endLine": 574,
-          "caption": "createTexture — 创建 WebGL 纹理",
-          "highlights": [
-            537,
-            538,
-            539,
-            540,
-            541,
-            542,
-            543,
-            544,
-            545,
-            546,
-            547,
-            548,
-            549,
-            550,
-            551,
-            552,
-            553,
-            554,
-            555,
-            556,
-            557,
-            558,
-            559,
-            560,
-            561,
-            562,
-            563,
-            564,
-            565,
-            566,
-            567,
-            568,
-            569,
-            570,
-            571,
-            572,
-            573,
-            574
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "createTexture 中有两个关键的纹理参数设置：NEAREST 过滤和 CLAMP_TO_EDGE 包裹。"
+          "text": "WebGL vs WebGPU 对比"
         },
         {
           "type": "table",
-          "headers": [
-            "参数",
-            "设置值",
-            "含义",
-            "为什么这样选"
-          ],
+          "headers": ["特性", "WebGL 2.0", "WebGPU"],
           "rows": [
-            [
-              "TEXTURE_MIN_FILTER",
-              "NEAREST",
-              "缩小时使用最近邻采样",
-              "保持像素风格的锐利边缘，不模糊"
-            ],
-            [
-              "TEXTURE_MAG_FILTER",
-              "NEAREST",
-              "放大时使用最近邻采样",
-              "同上，像素游戏放大应该看到像素格"
-            ],
-            [
-              "TEXTURE_WRAP_S",
-              "CLAMP_TO_EDGE",
-              "水平方向边缘钳制",
-              "防止纹理环绕时边缘像素泄漏"
-            ],
-            [
-              "TEXTURE_WRAP_T",
-              "CLAMP_TO_EDGE",
-              "垂直方向边缘钳制",
-              "同上"
-            ]
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "纹理更新使用了一个重要优化：**texSubImage2D 增量上传**。当纹理尺寸不变时，使用 texSubImage2D 代替 texImage2D，避免 GPU 重新分配纹理内存。对于每帧更新的大纹理（如光照遮罩），这个优化可以将上传开销大幅降低。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/webgl-renderer.ts",
-          "startLine": 576,
-          "endLine": 599,
-          "caption": "updateTexture — 尺寸不变时用 texSubImage2D 增量上传",
-          "highlights": [
-            576,
-            577,
-            578,
-            579,
-            580,
-            581,
-            582,
-            583,
-            584,
-            585,
-            586,
-            587,
-            588,
-            589,
-            590,
-            591,
-            592,
-            593,
-            594,
-            595,
-            596,
-            597,
-            598,
-            599
+            ["状态管理", "全局状态机，逐项设置", "不可变 PSO，一次创建"],
+            ["命令模型", "立即模式（immediate）", "命令缓冲（deferred）"],
+            ["着色器语言", "GLSL ES", "WGSL"],
+            ["着色器编译", "运行时字符串编译", "预编译模块"],
+            ["Compute Shader", "不支持", "原生支持"],
+            ["内存管理", "驱动自动（不透明）", "开发者显式管理 Buffer/Texture"],
+            ["多线程", "仅主线程", "Worker 线程可录制命令"],
+            ["CPU 开销", "高（状态验证）", "低（状态冻结在 PSO 中）"]
           ]
         },
         {
           "type": "note",
-          "text": "texImage2D 会让驱动分配新的显存并拷贝数据，而 texSubImage2D 只是 memcpy 到已分配的显存。对于每帧更新的 14MB+ 纹理数据（如 lum-mask），这个区别是巨大的。"
+          "text": "对于前端开发者来说，WebGPU 最大的思维转变是：你需要像管理 DOM 一样管理 GPU 资源的生命周期（创建、使用、销毁），而不能像 WebGL 那样随意绑定和解绑。"
+        },
+        {
+          "type": "paragraph",
+          "text": "下面我们来看看 Cocos Creator 引擎是如何通过 GFX 抽象层来屏蔽这些底层差异的。"
+        }
+      ]
+    },
+    {
+      "title": "Cocos GFX 抽象层 — 跨平台 GPU 抽象",
+      "sections": [
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "为什么需要抽象层"
+        },
+        {
+          "type": "paragraph",
+          "text": "Cocos Creator 是一个跨平台引擎，需要同时支持 WebGL、WebGL2、WebGPU、Metal、Vulkan 等多种图形后端。如果上层渲染逻辑直接依赖某个特定 API，切换后端就需要重写大量代码。因此 Cocos 设计了一个 GFX（Graphics）抽象层，将所有 GPU 操作抽象为统一的接口。"
+        },
+        {
+          "type": "paragraph",
+          "text": "GFX 层的核心思想是「抽象工厂模式」—— Device 类作为工厂，提供一组 create* 方法来创建各种 GPU 资源对象。每个图形后端（WebGL、WebGPU、Metal 等）都继承 Device 并实现这些方法。"
         },
         {
           "type": "heading",
           "level": 2,
-          "text": "8. FinalizationRegistry 与 GPU 资源清理"
+          "text": "Device 抽象工厂"
         },
         {
           "type": "paragraph",
-          "text": "JavaScript 的垃圾回收器（GC）只能管理内存，不能管理 GPU 资源。当一个 JS 对象（如 HTMLCanvasElement）被 GC 回收时，它创建的 WebGLTexture 不会自动释放，导致 GPU 显存泄漏。FinalizationRegistry 是 ES2021 引入的 API，可以在对象被 GC 时执行回调。"
+          "text": "让我们看看 Device 抽象类的定义。它是所有图形后端的基类，定义了创建 GPU 资源的统一接口："
         },
         {
           "type": "code-reference",
-          "file": "packages/engine/src/renderer/webgl-renderer.ts",
-          "startLine": 86,
-          "endLine": 101,
-          "caption": "FinalizationRegistry — 当源对象被 GC 时自动清理 GPU 纹理",
-          "highlights": [
-            86,
-            87,
-            88,
-            89,
-            90,
-            91,
-            92,
-            93,
-            94,
-            95,
-            96,
-            97,
-            98,
-            99,
-            100,
-            101
+          "file": "cocos/gfx/base/device.ts",
+          "startLine": 55,
+          "endLine": 405,
+          "caption": "Device 抽象类 — GFX 抽象层的核心工厂",
+          "highlights": [55, 194, 235, 242, 256, 298, 312]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "Device 的关键方法"
+        },
+        {
+          "type": "paragraph",
+          "text": "Device.initialize() 是设备的初始化入口，不同后端的实现差异巨大。WebGL 可能是同步的，而 WebGPU 必须是异步的（因为需要等待 GPUAdapter 和 GPUDevice）："
+        },
+        {
+          "type": "code-reference",
+          "file": "cocos/gfx/base/device.ts",
+          "startLine": 194,
+          "endLine": 194,
+          "caption": "initialize 方法签名 — 返回 boolean 或 Promise<boolean>",
+          "highlights": [194]
+        },
+        {
+          "type": "paragraph",
+          "text": "资源创建方法是工厂模式的核心。注意 createBuffer、createTexture、createShader 等方法都是 abstract 的，由具体后端实现："
+        },
+        {
+          "type": "code-reference",
+          "file": "cocos/gfx/base/device.ts",
+          "startLine": 235,
+          "endLine": 256,
+          "caption": "createBuffer / createTexture / createShader — 核心资源创建方法",
+          "highlights": [235, 242, 256]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "API 枚举 — 支持的图形后端"
+        },
+        {
+          "type": "paragraph",
+          "text": "Cocos GFX 通过 API 枚举标识当前使用的图形后端。这个枚举定义了所有支持的图形 API："
+        },
+        {
+          "type": "code-reference",
+          "file": "cocos/gfx/base/define.ts",
+          "startLine": 88,
+          "endLine": 98,
+          "caption": "API 枚举 — 所有支持的图形后端",
+          "highlights": [88, 97, 98]
+        },
+        {
+          "type": "table",
+          "headers": ["枚举值", "后端", "平台"],
+          "rows": [
+            ["GLES2", "OpenGL ES 2.0", "旧设备/浏览器"],
+            ["GLES3", "OpenGL ES 3.0", "现代移动设备"],
+            ["WEBGL", "WebGL 1.0", "旧浏览器"],
+            ["WEBGL2", "WebGL 2.0", "现代浏览器"],
+            ["WEBGPU", "WebGPU", "最新浏览器（Chrome 113+）"],
+            ["METAL", "Metal", "iOS / macOS"],
+            ["VULKAN", "Vulkan", "Android / Windows / Linux"]
           ]
         },
         {
-          "type": "paragraph",
-          "text": "工作原理：在 getOrCreateSourceTexture 中，每次创建新纹理时调用 sourceTextureRegistry.register(source, textureId, source)。当 source 对象（如一个 NPC 的 atlas canvas）失去所有强引用后，GC 回收它时会触发回调，回调中通过 textureId 找到并删除对应的 WebGLTexture。"
+          "type": "heading",
+          "level": 2,
+          "text": "资源生命周期"
         },
         {
           "type": "paragraph",
-          "text": "注意第三个参数 source 是 unregisterToken — 当手动调用 releaseSourceTexture 时，用它取消注册，避免 GC 回调重复释放已删除的纹理。"
+          "text": "在 GFX 抽象层中，所有 GPU 资源都有明确的生命周期：initialize（初始化）和 destroy（销毁）。这与 WebGPU 的理念一致——GPU 资源是昂贵的，必须显式管理。"
         },
         {
           "type": "list",
           "items": [
-            "FinalizationRegistry 不保证回调时机 — GC 是不确定的，回调可能延迟",
-            "它只是一种安全网，不能替代显式的资源管理（releaseSourceTexture）",
-            "WeakMap 用于 JS 侧缓存（source → TextureInfo），FinalizationRegistry 用于 GPU 侧清理",
-            "典型场景：NPC 被销毁后，其 atlas canvas 失去引用，GC 时自动释放 GPU 纹理"
+            "initialize() — 将描述信息（Info）转换为底层 GPU 对象（如 WebGL 的 GL 对象或 WebGPU 的 GPUBuffer）",
+            "destroy() — 释放底层 GPU 资源，防止内存泄漏",
+            "每个 create* 方法返回一个已初始化的对象，调用者负责在不需要时调用 destroy()",
+            "Device 自身也有 initialize/destroy 生命周期，控制整个图形子系统的启停"
           ]
-        },
-        {
-          "type": "heading",
-          "level": 2,
-          "text": "9. GLStateCache — 消除冗余 GL 调用"
-        },
-        {
-          "type": "paragraph",
-          "text": "GLStateCache 是一个简单但极其有效的优化。WebGL 的每次 API 调用都有 CPU 开销（参数验证、命令序列化）。当多个 batcher 共享同一个 GL 上下文时，很多状态切换其实是冗余的 — 比如连续两次 flush 使用同一个 shader program，第二次的 useProgram 完全多余。"
-        },
-        {
-          "type": "code-reference",
-          "file": "packages/engine/src/renderer/gl-state-cache.ts",
-          "startLine": 1,
-          "endLine": 55,
-          "caption": "完整的 GLStateCache 实现 — 只有 55 行，但效果显著",
-          "highlights": [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            16,
-            17,
-            18,
-            19,
-            20,
-            21,
-            22,
-            23,
-            24,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30,
-            31,
-            32,
-            33,
-            34,
-            35,
-            36,
-            37,
-            38,
-            39,
-            40,
-            41,
-            42,
-            43,
-            44,
-            45,
-            46,
-            47,
-            48,
-            49,
-            50,
-            51,
-            52,
-            53,
-            54,
-            55
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "原理非常简单：缓存当前绑定的 program、VAO、ArrayBuffer。在绑定前检查是否已经是当前值，如果是则跳过 GL 调用。根据注释，实测一帧约 590 次 drawArrays，每次约 8 个 GL 调用，总计约 4700 次，其中大多数是冗余的。"
-        },
-        {
-          "type": "table",
-          "headers": [
-            "缓存字段",
-            "对应 GL 调用",
-            "失效时机"
-          ],
-          "rows": [
-            [
-              "currentProgram",
-              "gl.useProgram(program)",
-              "init/resize 中直接调用 useProgram 时"
-            ],
-            [
-              "currentVAO",
-              "gl2.bindVertexArray(vao)",
-              "水波纹后处理绑定自定义 VAO 后"
-            ],
-            [
-              "currentArrayBuffer",
-              "gl.bindBuffer(ARRAY_BUFFER, buffer)",
-              "几乎不会被外部直接修改"
-            ]
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "失效机制（invalidate*）是关键设计。当外部代码直接调用 GL API 绕过了缓存（比如 init 中设置 resolution uniform 需要先 useProgram），必须手动调用 invalidateProgram() 告诉缓存 \"我改了 program 绑定，你的记录过时了\"。如果忘记失效，缓存会跳过本应执行的 GL 调用，导致渲染错误。"
         },
         {
           "type": "note",
-          "text": "GLStateCache 的设计哲学是\"缓存 + 失效\"模式，这是计算机科学中最经典的优化策略之一（Phil Karlton: \"There are only two hard things in Computer Science: cache invalidation and naming things\"）。这里故意让缓存字段为 public，让 batcher 可以直接读取，减少了函数调用开销。"
+          "text": "WebGPU 的资源管理比 WebGL 更加严格。在 WebGL 中，忘记删除纹理通常只会导致内存缓慢增长；在 WebGPU 中，GPU 内存是显式分配的，泄漏会更快地导致问题。"
+        }
+      ]
+    },
+    {
+      "title": "GPUAdapter 和 GPUDevice",
+      "sections": [
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "WebGPU 的异步初始化流程"
+        },
+        {
+          "type": "paragraph",
+          "text": "WebGPU 与 WebGL 最大的区别之一是初始化过程必须是异步的。这是因为 WebGPU 需要与 GPU 驱动进行协商，确定设备能力和限制，这个过程不能阻塞主线程。"
+        },
+        {
+          "type": "paragraph",
+          "text": "初始化流程分为两步：第一步，通过 navigator.gpu.requestAdapter() 获取 GPUAdapter（代表一个物理 GPU 适配器）；第二步，通过 adapter.requestDevice() 获取 GPUDevice（代表一个逻辑设备连接）。"
+        },
+        {
+          "type": "code-block",
+          "language": "javascript",
+          "code": "// WebGPU 初始化的典型流程\nconst adapter = await navigator.gpu.requestAdapter({\n    powerPreference: 'high-performance'\n});\n\nconst device = await adapter.requestDevice({\n    requiredFeatures: [],\n    requiredLimits: {}\n});\n\n// 现在可以用 device 创建 GPU 资源了\nconst buffer = device.createBuffer({\n    size: 1024,\n    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST\n});"
         },
         {
           "type": "heading",
           "level": 2,
-          "text": "附录：类型系统总览"
+          "text": "WebGPUDevice 的实现"
         },
         {
           "type": "paragraph",
-          "text": "miu2d 的渲染类型系统定义在 types.ts 中，它是整个渲染抽象层的基础。所有渲染器实现（Canvas2D / WebGL）都基于这套接口，使得上层代码可以透明切换渲染后端。"
+          "text": "在 Cocos 的 GFX 抽象层中，WebGPUDevice 继承自 Device 基类，负责封装 WebGPU 的原生 API。让我们看看它的类定义和关键实现："
         },
         {
           "type": "code-reference",
-          "file": "packages/engine/src/renderer/types.ts",
-          "startLine": 1,
-          "endLine": 131,
-          "caption": "types.ts 完整内容 — 渲染层类型定义",
-          "highlights": [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            16,
-            17,
-            18,
-            19,
-            20,
-            21,
-            22,
-            23,
-            24,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30,
-            31,
-            32,
-            33,
-            34,
-            35,
-            36,
-            37,
-            38,
-            39,
-            40,
-            41,
-            42,
-            43,
-            44,
-            45,
-            46,
-            47,
-            48,
-            49,
-            50,
-            51,
-            52,
-            53
-          ]
-        },
-        {
-          "type": "paragraph",
-          "text": "注意类型设计的层次：BlendMode（混合模式）和 ColorFilter（颜色滤镜）是字面量联合类型，TextureSource 是可辨识联合（Discriminated Union），DrawSpriteParams 使用可选属性实现灵活的参数传递。这种类型设计既保证了类型安全，又提供了良好的开发者体验。"
+          "file": "cocos/gfx/webgpu/webgpu-device.ts",
+          "startLine": 98,
+          "endLine": 141,
+          "caption": "WebGPUDevice 类 — 继承 Device，实现 WebGPU 后端",
+          "highlights": [98, 105, 106, 107, 108, 109, 110, 111]
         },
         {
           "type": "heading",
           "level": 2,
-          "text": "总结：一帧的完整旅程"
+          "text": "设备能力查询"
         },
         {
           "type": "paragraph",
-          "text": "让我们跟踪一帧的完整渲染流程，把所有知识点串联起来："
+          "text": "GPUAdapter 提供了丰富的信息来帮助你了解当前设备的能力："
         },
         {
           "type": "list",
           "items": [
-            "1. beginFrame() — 重置统计、清屏、重置状态到默认值",
-            "2. drawSprite(精灵A) — 顶点数据写入 batcher 缓冲区，纹理分配槽位 0",
-            "3. drawSprite(精灵B，同纹理) — 顶点数据追加，复用槽位 0，不触发 flush",
-            "4. drawSprite(精灵C，新纹理) — 分配槽位 1，不触发 flush（8 个槽位够用）",
-            "5. setBlendMode('additive') — 改变混合模式，flush 前面所有批次（第 1 次 draw call）",
-            "6. drawSprite(精灵D) — 新批次开始，槽位从 0 重新分配",
-            "7. fillRect(红色矩形) — 触发精灵 batcher flush（第 2 次 draw call），矩形写入 rectBatcher",
-            "8. endFrame() — flush 矩形 batcher（第 3 次 draw call），汇总统计",
-            "9. 结果：6 个绘制操作只产生了 3 次 draw call"
+            "adapter.features — 设备支持的可选特性集合（如纹理压缩格式、多绘制间接等）",
+            "adapter.limits — 设备的硬件限制（如最大纹理尺寸、最大缓冲绑定点数量等）",
+            "adapter.requestDevice() — 可以请求特定的特性和限制，超出设备能力会失败",
+            "device.features / device.limits — 实际分配的设备能力和限制（可能比请求的更少）"
           ]
         },
         {
+          "type": "code-block",
+          "language": "javascript",
+          "code": "// 查询设备能力\nconst adapter = await navigator.gpu.requestAdapter();\n\nconsole.log('支持的特性:', [...adapter.features]);\nconsole.log('最大纹理尺寸:', adapter.limits.maxTextureDimension2D);\nconsole.log('最大缓冲大小:', adapter.limits.maxBufferSize);\n\n// 请求特定特性\nconst device = await adapter.requestDevice({\n    requiredFeatures: ['texture-compression-bc'],\n    requiredLimits: {\n        maxBufferSize: 256 * 1024 * 1024  // 请求 256MB 最大缓冲\n    }\n});"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "设备丢失处理"
+        },
+        {
+          "type": "paragraph",
+          "text": "GPUDevice 可能在任何时候「丢失」——这通常发生在 GPU 驱动崩溃、系统资源不足或用户拔掉外置显卡时。WebGPU 提供了 device.lost Promise 来处理这种情况："
+        },
+        {
+          "type": "code-block",
+          "language": "javascript",
+          "code": "// 设备丢失处理\ndevice.lost.then((info) => {\n    console.error('GPU 设备丢失:', info.message);\n    console.error('丢失原因:', info.reason);\n    // reason 可以是 'unknown' 或 'destroyed'\n    // 需要重新初始化整个渲染管线\n    reinitializeRenderer();\n});"
+        },
+        {
           "type": "note",
-          "text": "本课学习了 WebGL 渲染管线的核心概念。下一课将深入研究顶点缓冲区布局、VAO 配置、以及如何实现高效的纹理图集（Texture Atlas）管理。"
+          "text": "在 Cocos 引擎中，WebGPUDevice.initialize() 返回一个 Promise<boolean>，这是因为它内部需要完成 requestAdapter 和 requestDevice 的异步调用。而 WebGL 的 Device.initialize() 是同步的，直接返回 boolean。这就是为什么 Device 基类的 initialize 签名是 `boolean | Promise<boolean>`。"
+        }
+      ]
+    },
+    {
+      "title": "GPUBuffer — GPU 内存块",
+      "sections": [
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "什么是 GPUBuffer"
+        },
+        {
+          "type": "paragraph",
+          "text": "GPUBuffer 是 GPU 上的一块线性内存，用于存储顶点数据、索引数据、Uniform 变量、计算结果等。它是 WebGPU 中最基本的数据容器，类似于 ArrayBuffer 在 JavaScript 中的角色。"
+        },
+        {
+          "type": "paragraph",
+          "text": "与 JavaScript 的 ArrayBuffer 不同，GPUBuffer 的创建需要指定「用途标志」（usage），告诉驱动这块内存将被如何使用。驱动会根据用途选择最优的内存布局和存储位置。"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "用途标志（Usage Flags）"
+        },
+        {
+          "type": "table",
+          "headers": ["标志", "用途", "典型场景"],
+          "rows": [
+            ["VERTEX", "作为顶点属性数据源", "网格的顶点/法线/UV 数据"],
+            ["INDEX", "作为索引数据源", "三角形索引列表"],
+            ["UNIFORM", "作为着色器 Uniform 缓冲", "变换矩阵、光照参数"],
+            ["STORAGE", "作为存储缓冲（可读写）", "Compute Shader 的输入/输出"],
+            ["COPY_SRC", "可以作为复制操作的源", "数据从 GPU 读回 CPU"],
+            ["COPY_DST", "可以作为复制操作的目标", "从 CPU 上传数据到 GPU"],
+            ["MAP_READ", "可以被 CPU 映射读取", "读回 GPU 计算结果"],
+            ["MAP_WRITE", "可以被 CPU 映射写入", "CPU 直接写入 GPU 内存"]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "创建方式"
+        },
+        {
+          "type": "paragraph",
+          "text": "WebGPU 提供了两种向 Buffer 写入数据的方式，适用于不同的使用场景："
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "方式一：mappedAtCreation（映射创建）"
+        },
+        {
+          "type": "paragraph",
+          "text": "在创建 Buffer 时就映射到 CPU 可访问的地址空间，写入数据后取消映射。适合初始化时一次性写入的数据："
+        },
+        {
+          "type": "code-block",
+          "language": "javascript",
+          "code": "// 方式一：mappedAtCreation\nconst vertexBuffer = device.createBuffer({\n    size: vertexData.byteLength,\n    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,\n    mappedAtCreation: true  // 创建时立即映射\n});\n\n// 写入数据（此时 buffer 映射在 CPU 地址空间）\nnew Float32Array(vertexBuffer.getMappedRange()).set(vertexData);\nvertexBuffer.unmap();  // 取消映射，GPU 可以使用了"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "方式二：queue.writeBuffer（队列写入）"
+        },
+        {
+          "type": "paragraph",
+          "text": "通过命令队列将数据从 CPU 复制到已有的 Buffer。适合运行时更新数据（如每帧更新 Uniform）："
+        },
+        {
+          "type": "code-block",
+          "language": "javascript",
+          "code": "// 方式二：queue.writeBuffer\nconst uniformBuffer = device.createBuffer({\n    size: 64,  // 一个 4x4 矩阵\n    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST\n});\n\n// 每帧更新 Uniform 数据\nconst matrixData = new Float32Array([...modelViewProjection]);\ndevice.queue.writeBuffer(uniformBuffer, 0, matrixData);"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "映射读回（Readback）"
+        },
+        {
+          "type": "paragraph",
+          "text": "有时需要从 GPU 读回数据（如 GPU 计算结果、截图等）。这需要使用 staging buffer 模式：创建一个带 MAP_READ 标志的临时 Buffer，将数据从 GPU 复制过来，再映射读取："
+        },
+        {
+          "type": "code-block",
+          "language": "javascript",
+          "code": "// 从 GPU 读回数据（staging buffer 模式）\nconst readBuffer = device.createBuffer({\n    size: dataSize,\n    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST\n});\n\n// 将数据从 GPU 复制到 staging buffer\nconst encoder = device.createCommandEncoder();\ncoder.copyBufferToBuffer(gpuBuffer, 0, readBuffer, 0, dataSize);\ndevice.queue.submit([encoder.finish()]);\n\n// 映射读取（异步）\nawait readBuffer.mapAsync(GPUMapMode.READ);\nconst result = new Float32Array(readBuffer.getMappedRange());\nreadBuffer.unmap();"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "Cocos GFX 中的 Buffer"
+        },
+        {
+          "type": "paragraph",
+          "text": "在 Cocos 的 GFX 抽象层中，Buffer 的创建通过 Device.createBuffer() 方法完成。WebGPUDevice 会将 GFX 的 BufferInfo 转换为 WebGPU 的 GPUBufferDescriptor："
+        },
+        {
+          "type": "code-reference",
+          "file": "cocos/gfx/base/device.ts",
+          "startLine": 235,
+          "endLine": 235,
+          "caption": "Device.createBuffer — 抽象工厂方法",
+          "highlights": [235]
+        },
+        {
+          "type": "note",
+          "text": "GPUBuffer 的大小在创建时确定，之后不能改变。如果需要更大的缓冲，必须创建新缓冲并销毁旧的。因此在设计时应预估好缓冲大小，避免频繁重建。"
+        }
+      ]
+    },
+    {
+      "title": "GPUTexture — 图像数据容器",
+      "sections": [
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "GPUTexture 概述"
+        },
+        {
+          "type": "paragraph",
+          "text": "GPUTexture 是 GPU 上存储图像数据的对象，用于渲染目标、纹理采样、帧缓冲附件等。与 Buffer 的线性数据不同，Texture 是多维的（2D、3D、Cube），并且有特定的像素格式和内存布局。"
+        },
+        {
+          "type": "paragraph",
+          "text": "WebGPU 的纹理模型比 WebGL 更加灵活但也更复杂。你需要理解格式（format）、维度（dimension）、mipmap 层级、数组层数等概念。"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "常用纹理格式"
+        },
+        {
+          "type": "table",
+          "headers": ["格式", "每像素字节", "用途", "说明"],
+          "rows": [
+            ["rgba8unorm", "4", "通用颜色纹理", "每个通道 8 位，归一化到 [0,1]"],
+            ["bgra8unorm", "4", "WebGPU 默认交换链格式", "与 rgba8unorm 类似，通道顺序不同"],
+            ["rgba16float", "8", "HDR 渲染目标", "16 位浮点，支持超出 [0,1] 的值"],
+            ["rgba32float", "16", "高精度计算", "32 位浮点，用于 G-Buffer 等"],
+            ["depth24plus", "4", "深度缓冲", "24 位深度 + 8 位模板"],
+            ["depth32float", "4", "高精度深度", "32 位浮点深度"],
+            ["r8unorm", "1", "灰度/遮罩", "单通道 8 位"],
+            ["rg8unorm", "2", "法线贴图 XY", "双通道 8 位"]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "TextureView — 子资源视图"
+        },
+        {
+          "type": "paragraph",
+          "text": "GPUTexture 本身不能直接绑定到着色器或用作渲染目标，你需要创建 TextureView。TextureView 是纹理的一个「视图」，可以指定访问纹理的子集（如单个 mipmap 层级、单个数组切片等），也可以重新解释格式。"
+        },
+        {
+          "type": "code-block",
+          "language": "javascript",
+          "code": "// 创建纹理\nconst texture = device.createTexture({\n    size: { width: 1024, height: 1024 },\n    format: 'rgba8unorm',\n    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,\n    mipLevelCount: 5  // 1024 -> 512 -> 256 -> 128 -> 64\n});\n\n// 创建 TextureView — 只看第 2 级 mipmap\nconst view = texture.createView({\n    baseMipLevel: 2,\n    mipLevelCount: 1  // 只访问 256x256 那一层\n});"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "Mipmap 和纹理图集"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Mipmap 是纹理的多级缩小版本，用于减少远距离采样的锯齿和带宽消耗",
+            "每个 mipmap 层级的尺寸是上一级的一半（如 1024 -> 512 -> 256 -> 128 -> 64 -> 32 -> 16 -> 8 -> 4 -> 2 -> 1）",
+            "WebGPU 不会自动生成 mipmap，你需要手动创建或使用渲染管线逐级生成",
+            "纹理图集（Texture Atlas）是将多个小纹理打包到一张大纹理中的技术，减少纹理切换开销",
+            "在使用纹理图集时，UV 坐标需要映射到图集中对应区域的范围"
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "Cocos GFX 中的 Texture"
+        },
+        {
+          "type": "code-reference",
+          "file": "cocos/gfx/base/device.ts",
+          "startLine": 242,
+          "endLine": 242,
+          "caption": "Device.createTexture — 抽象工厂方法",
+          "highlights": [242]
+        },
+        {
+          "type": "note",
+          "text": "WebGPU 的纹理格式名称使用 kebab-case（如 rgba8unorm），而 Cocos GFX 使用 PascalCase 枚举（如 Format.RGBA8）。在 WebGPUDevice 内部会进行格式转换。"
+        }
+      ]
+    },
+    {
+      "title": "GPUSampler — 纹理采样控制",
+      "sections": [
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "什么是 Sampler"
+        },
+        {
+          "type": "paragraph",
+          "text": "Sampler 定义了着色器如何从纹理中读取（采样）像素数据。当你在着色器中调用 textureSample() 时，GPU 会根据 Sampler 的设置来决定：如何处理纹理坐标超出 [0,1] 范围的情况（寻址模式），以及当采样点落在像素之间时如何插值（过滤模式）。"
+        },
+        {
+          "type": "paragraph",
+          "text": "在 WebGL 中，采样设置是绑定在纹理对象上的（gl.texParameteri）；而在 WebGPU 中，Sampler 是独立的对象，可以与任意纹理组合使用，这大大提高了灵活性。"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "过滤模式（Filter Mode）"
+        },
+        {
+          "type": "table",
+          "headers": ["模式", "效果", "适用场景", "性能"],
+          "rows": [
+            ["nearest", "取最近的像素，无插值", "像素风格游戏、UI 元素", "最快"],
+            ["linear", "双线性插值（2D）或三线性插值（3D+Mipmap）", "写实风格纹理", "稍慢"],
+            ["nearest-mipmap-nearest", "取最近 mipmap 层级的最近像素", "较少使用", "快"],
+            ["linear-mipmap-linear", "在两个 mipmap 层级间插值", "高质量远距离渲染", "最慢"]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "寻址模式（Address Mode）"
+        },
+        {
+          "type": "paragraph",
+          "text": "寻址模式控制当纹理坐标超出 [0,1] 范围时的行为："
+        },
+        {
+          "type": "table",
+          "headers": ["模式", "行为", "典型用途"],
+          "rows": [
+            ["clamp-to-edge", "超出范围时取边缘像素", "UI 元素、不需要重复的纹理"],
+            ["repeat", "超出范围时重复纹理", "地形、墙面等需要平铺的纹理"],
+            ["mirror-repeat", "超出范围时镜像重复", "需要无缝平铺但避免明显接缝的纹理"]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "WebGPU Sampler 创建示例"
+        },
+        {
+          "type": "code-block",
+          "language": "javascript",
+          "code": "// 像素风格采样器（最近邻 + 重复）\nconst pixelSampler = device.createSampler({\n    magFilter: 'nearest',\n    minFilter: 'nearest',\n    mipmapFilter: 'nearest',\n    addressModeU: 'repeat',\n    addressModeV: 'repeat'\n});\n\n// 写实风格采样器（双线性 + 边缘钳制）\nconst smoothSampler = device.createSampler({\n    magFilter: 'linear',\n    minFilter: 'linear',\n    mipmapFilter: 'linear',\n    addressModeU: 'clamp-to-edge',\n    addressModeV: 'clamp-to-edge'\n});"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "Cocos GFX 中的采样器缓存"
+        },
+        {
+          "type": "paragraph",
+          "text": "在 Cocos 的 GFX 抽象层中，Sampler 不是通过 create* 方法创建的，而是通过 getSampler() 获取。这是因为引擎使用了采样器缓存——相同参数的采样器会复用同一个对象，避免重复创建："
+        },
+        {
+          "type": "code-reference",
+          "file": "cocos/gfx/webgpu/webgpu-device.ts",
+          "startLine": 105,
+          "endLine": 111,
+          "caption": "WebGPUDevice.getSampler — 带缓存的采样器获取",
+          "highlights": [105, 106, 107, 108, 109, 110, 111]
+        },
+        {
+          "type": "paragraph",
+          "text": "这段代码展示了采样器缓存的工作原理：首先通过 Sampler.computeHash() 计算采样器参数的哈希值，然后检查缓存中是否已有相同参数的采样器。如果有则直接返回，没有则创建新的并存入缓存。"
+        },
+        {
+          "type": "note",
+          "text": "采样器是 WebGPU 中最轻量的对象之一，创建成本很低，但使用缓存仍然是好习惯。在 Cocos 引擎中，_samplers 是 Device 基类上定义的 Map<number, Sampler>，所有后端都共享这个缓存策略。"
         }
       ]
     }
   ],
   "files": {
-    "packages/engine/src/renderer/webgl-renderer.ts": "/**\n * WebGLRenderer - WebGL 2D 精灵渲染器\n *\n * 核心实现：\n * 1. 使用 SpriteBatcher 批量绘制精灵（主要性能提升来源）\n * 2. 纹理管理：ImageData/Canvas → WebGLTexture，带缓存\n * 3. 着色器内置颜色滤镜（grayscale/frozen/poison）\n * 4. 混合模式映射到 WebGL blendFunc\n * 5. 矩形填充使用独立 shader program\n *\n * 预期性能提升：\n * - 地图瓦片 ~4800 drawImage → ~1-5 draw calls（同一纹理自动批合并）\n * - 角色/NPC/物体 ~100-200 drawImage → ~5-10 draw calls\n * - 天气粒子 ~300 fillRect → 1 draw call\n */\n\nimport { logger } from \"../core/logger\";\nimport { parseColor, type RGBAColor } from \"./color-utils\";\nimport { GLStateCache } from \"./gl-state-cache\";\nimport { RectBatcher } from \"./rect-batcher\";\nimport type { Renderer } from \"./renderer\";\nimport {\n  createRectProgram,\n  createSpriteProgram,\n  createWaterProgram,\n  type RectProgram,\n  type SpriteProgram,\n  type WaterProgram,\n} from \"./shaders\";\nimport { SpriteBatcher } from \"./sprite-batcher\";\nimport type {\n  BlendMode,\n  ColorFilter,\n  DrawSourceOptions,\n  DrawSpriteParams,\n  FillRectParams,\n  RenderState,\n  RenderStats,\n  TextureId,\n  TextureInfo,\n  TextureSource,\n} from \"./types\";\n\n/** WebGL 纹理实现 */\ninterface WebGLTextureEntry extends TextureInfo {\n  glTexture: WebGLTexture;\n  /** 原始图像源（用于重新上传） */\n  source: TextureSource | null;\n}\n\nexport class WebGLRenderer implements Renderer {\n  readonly type = \"webgl\" as const;\n\n  private canvas: HTMLCanvasElement | null = null;\n  private gl: WebGLRenderingContext | null = null;\n  private _width = 0;\n  private _height = 0;\n\n  // Shader programs\n  private spriteProgram: SpriteProgram | null = null;\n  private rectProgram: RectProgram | null = null;\n\n  // Water effect post-processing\n  private waterProgram: WaterProgram | null = null;\n  private waterFBO: WebGLFramebuffer | null = null;\n  private waterFBOTexture: WebGLTexture | null = null;\n  private waterVAO: WebGLVertexArrayObject | null = null;\n  private waterVBO: WebGLBuffer | null = null;\n\n  // 批量渲染器\n  private batcher: SpriteBatcher | null = null;\n  private rectBatcher: RectBatcher | null = null;\n\n  /** GL 状态缓存（跨 batcher 共享，消除冗余 useProgram/bindBuffer/bindVAO） */\n  private glState = new GLStateCache();\n\n  // 纹理管理\n  private nextTextureId: TextureId = 1;\n  private textures = new Map<TextureId, WebGLTextureEntry>();\n\n  /** drawSource/drawSourceEx 用的纹理缓存（WeakMap 自动清理，仅限 object 类型 source） */\n  private sourceTextureCache = new WeakMap<object, TextureInfo>();\n  /** ImageData 纹理缓存（通过 width+height+data hash 识别，避免每次重建） */\n  private imageDataTextureCache = new Map<ImageData, TextureInfo>();\n\n  /**\n   * FinalizationRegistry: 当 drawSource 缓存的源对象被 GC 时，\n   * 自动从 textures Map 中删除对应的 GPU 纹理，防止孤立泄漏。\n   *\n   * 典型场景：NPC ASF atlas canvas 失去所有强引用后，\n   * sourceTextureCache (WeakMap) 的条目自动消失，\n   * 但 textures Map 中的 WebGLTextureEntry 仍在——\n   * FinalizationRegistry 回调会清理它。\n   */\n  private sourceTextureRegistry = new FinalizationRegistry<TextureId>((textureId) => {\n    const entry = this.textures.get(textureId);\n    if (entry) {\n      this.gl?.deleteTexture(entry.glTexture);\n      this.textures.delete(textureId);\n    }\n  });\n\n  /** CSS 颜色字符串解析缓存（避免天气粒子每帧重复解析） */\n  private colorCache = new Map<string, RGBAColor>();\n\n  /** 上一次实际应用到 GL 的混合模式（脏标记，避免每帧数千次无意义 gl.blendFunc） */\n  private lastAppliedBlendMode: BlendMode = \"normal\";\n\n  // 状态栈\n  private stateStack: RenderState[] = [];\n  private currentState: RenderState = {\n    alpha: 1,\n    blendMode: \"normal\",\n    filter: \"none\",\n  };\n\n  // 统计\n  private stats: RenderStats = {\n    drawCalls: 0,\n    spriteCount: 0,\n    rectCount: 0,\n    textureSwaps: 0,\n    textureCount: 0,\n  };\n\n  /** 上一帧完整统计快照（供外部查询） */\n  private lastFrameStats: RenderStats = {\n    drawCalls: 0,\n    spriteCount: 0,\n    rectCount: 0,\n    textureSwaps: 0,\n    textureCount: 0,\n  };\n\n  get width(): number {\n    return this._width;\n  }\n\n  get height(): number {\n    return this._height;\n  }\n\n  // ============= 生命周期 =============\n\n  init(canvas: HTMLCanvasElement): boolean {\n    const gl = canvas.getContext(\"webgl2\", {\n      alpha: false, // 不需要 canvas 透明背景\n      antialias: false, // 像素风格不需要抗锯齿\n      premultipliedAlpha: true,\n      preserveDrawingBuffer: true, // 截图需要\n      powerPreference: \"high-performance\",\n    }) as WebGLRenderingContext | null;\n\n    if (!gl) {\n      logger.error(\"[WebGLRenderer] Failed to get WebGL2 context\");\n      return false;\n    }\n\n    this.canvas = canvas;\n    this.gl = gl;\n    this._width = canvas.width;\n    this._height = canvas.height;\n\n    // 编译着色器\n    this.spriteProgram = createSpriteProgram(gl);\n    if (!this.spriteProgram) {\n      logger.error(\"[WebGLRenderer] Failed to create sprite program\");\n      return false;\n    }\n\n    this.rectProgram = createRectProgram(gl);\n    if (!this.rectProgram) {\n      logger.error(\"[WebGLRenderer] Failed to create rect program\");\n      return false;\n    }\n\n    // 创建批量渲染器\n    this.batcher = new SpriteBatcher(gl, this.spriteProgram, this.glState);\n    this.rectBatcher = new RectBatcher(gl, this.rectProgram, this.glState);\n\n    // 设置 WebGL 状态\n    gl.viewport(0, 0, this._width, this._height);\n\n    // 启用 alpha 混合（精灵有透明像素）\n    gl.enable(gl.BLEND);\n    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);\n\n    // 禁用不需要的功能\n    gl.disable(gl.DEPTH_TEST);\n    gl.disable(gl.CULL_FACE);\n\n    // 设置分辨率 uniform\n    gl.useProgram(this.spriteProgram.program);\n    gl.uniform2f(this.spriteProgram.u_resolution, this._width, this._height);\n\n    gl.useProgram(this.rectProgram.program);\n    gl.uniform2f(this.rectProgram.u_resolution, this._width, this._height);\n\n    // 直接修改了 program 绑定，失效缓存\n    this.glState.invalidateProgram();\n\n    logger.info(\n      `[WebGLRenderer] Initialized: ${this._width}x${this._height}, ` +\n        `vendor=${gl.getParameter(gl.VENDOR)}, renderer=${gl.getParameter(gl.RENDERER)}`\n    );\n\n    return true;\n  }\n\n  dispose(): void {\n    const gl = this.gl;\n    if (!gl) return;\n\n    // 释放纹理\n    for (const tex of this.textures.values()) {\n      gl.deleteTexture(tex.glTexture);\n    }\n    this.textures.clear();\n\n    // 释放 batcher\n    this.batcher?.dispose();\n    this.batcher = null;\n    this.rectBatcher?.dispose();\n    this.rectBatcher = null;\n\n    // 清理缓存\n    this.imageDataTextureCache.clear();\n    this.colorCache.clear();\n    // FinalizationRegistry 无需手动清理，所有注册的 source 已随纹理释放\n\n    // 释放水波纹效果资源\n    this.disposeWaterEffect();\n\n    // 释放 programs\n    if (this.spriteProgram) gl.deleteProgram(this.spriteProgram.program);\n    if (this.rectProgram) gl.deleteProgram(this.rectProgram.program);\n\n    this.gl = null;\n    this.canvas = null;\n  }\n\n  resize(width: number, height: number): void {\n    this._width = width;\n    this._height = height;\n\n    if (this.canvas) {\n      this.canvas.width = width;\n      this.canvas.height = height;\n    }\n\n    const gl = this.gl;\n    if (!gl) return;\n\n    gl.viewport(0, 0, width, height);\n\n    // 更新分辨率 uniform\n    if (this.spriteProgram) {\n      gl.useProgram(this.spriteProgram.program);\n      gl.uniform2f(this.spriteProgram.u_resolution, width, height);\n    }\n    if (this.rectProgram) {\n      gl.useProgram(this.rectProgram.program);\n      gl.uniform2f(this.rectProgram.u_resolution, width, height);\n    }\n\n    // Resize water FBO if it exists\n    if (this.waterFBO) {\n      this.resizeWaterFBO(width, height);\n    }\n\n    this.glState.invalidateProgram();\n  }\n\n  // ============= 帧控制 =============\n\n  beginFrame(): void {\n    const gl = this.gl;\n    if (!gl) return;\n\n    // 重置统计\n    this.batcher?.resetStats();\n    this.rectBatcher?.resetStats();\n    this.stats.drawCalls = 0;\n    this.stats.spriteCount = 0;\n    this.stats.rectCount = 0;\n    this.stats.textureSwaps = 0;\n    this.stats.textureCount = this.textures.size;\n\n    // 重置状态（复用对象，避免 GC）\n    this.currentState.alpha = 1;\n    this.currentState.blendMode = \"normal\";\n    this.currentState.filter = \"none\";\n    this.stateStack.length = 0;\n\n    // 清屏\n    gl.clearColor(0, 0, 0, 1);\n    gl.clear(gl.COLOR_BUFFER_BIT);\n\n    // 重置混合模式\n    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);\n    this.lastAppliedBlendMode = \"normal\";\n  }\n\n  endFrame(): void {\n    // 刷新所有待提交的批次\n    this.batcher?.flush();\n    this.rectBatcher?.flush();\n\n    // 汇总统计\n    if (this.batcher) {\n      this.stats.drawCalls += this.batcher.drawCalls;\n      this.stats.spriteCount = this.batcher.totalSprites;\n      this.stats.textureSwaps = this.batcher.textureSwaps;\n    }\n    if (this.rectBatcher) {\n      this.stats.drawCalls += this.rectBatcher.drawCalls;\n      this.stats.rectCount = this.rectBatcher.totalRects;\n    }\n    this.stats.textureCount = this.textures.size;\n\n    // 保存完整帧统计快照（复用对象，避免 GC）\n    this.lastFrameStats.drawCalls = this.stats.drawCalls;\n    this.lastFrameStats.spriteCount = this.stats.spriteCount;\n    this.lastFrameStats.rectCount = this.stats.rectCount;\n    this.lastFrameStats.textureSwaps = this.stats.textureSwaps;\n    this.lastFrameStats.textureCount = this.stats.textureCount;\n  }\n\n  // ============= Water Effect Post-Processing =============\n\n  /**\n   * Lazy-initialize water effect resources (shader, FBO, fullscreen quad).\n   * Called automatically on first bindOffscreenTarget().\n   */\n  private initWaterEffect(): boolean {\n    const gl = this.gl;\n    if (!gl) return false;\n\n    // Compile water shader program\n    this.waterProgram = createWaterProgram(gl);\n    if (!this.waterProgram) {\n      logger.error(\"[WebGLRenderer] Failed to create water program\");\n      return false;\n    }\n\n    // Set sampler uniform to texture unit 0\n    gl.useProgram(this.waterProgram.program);\n    gl.uniform1i(this.waterProgram.u_sceneTexture, 0);\n    this.glState.invalidateProgram();\n\n    // Create FBO with color texture attachment\n    this.waterFBO = gl.createFramebuffer();\n    this.waterFBOTexture = gl.createTexture();\n\n    gl.bindTexture(gl.TEXTURE_2D, this.waterFBOTexture);\n    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this._width, this._height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);\n    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);\n    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);\n    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);\n    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);\n\n    gl.bindFramebuffer(gl.FRAMEBUFFER, this.waterFBO);\n    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.waterFBOTexture, 0);\n    gl.bindFramebuffer(gl.FRAMEBUFFER, null);\n    gl.bindTexture(gl.TEXTURE_2D, null);\n\n    // Create fullscreen quad VAO (position + UV, 6 vertices)\n    this.waterVAO = (gl as WebGL2RenderingContext).createVertexArray();\n    this.waterVBO = gl.createBuffer();\n\n    (gl as WebGL2RenderingContext).bindVertexArray(this.waterVAO);\n    gl.bindBuffer(gl.ARRAY_BUFFER, this.waterVBO);\n\n    // Fullscreen quad: 2 triangles covering clip space [-1,1], UV [0,1]\n    // prettier-ignore\n    const quadData = new Float32Array([\n      // position    // UV\n      -1, -1,        0, 0,\n       1, -1,        1, 0,\n      -1,  1,        0, 1,\n       1, -1,        1, 0,\n       1,  1,        1, 1,\n      -1,  1,        0, 1,\n    ]);\n    gl.bufferData(gl.ARRAY_BUFFER, quadData, gl.STATIC_DRAW);\n\n    const stride = 4 * 4; // 4 floats × 4 bytes\n    gl.enableVertexAttribArray(this.waterProgram.a_position);\n    gl.vertexAttribPointer(this.waterProgram.a_position, 2, gl.FLOAT, false, stride, 0);\n    gl.enableVertexAttribArray(this.waterProgram.a_texcoord);\n    gl.vertexAttribPointer(this.waterProgram.a_texcoord, 2, gl.FLOAT, false, stride, 8);\n\n    (gl as WebGL2RenderingContext).bindVertexArray(null);\n    gl.bindBuffer(gl.ARRAY_BUFFER, null);\n\n    return true;\n  }\n\n  /**\n   * Resize the water FBO color texture to match the new canvas size.\n   */\n  private resizeWaterFBO(w: number, h: number): void {\n    const gl = this.gl;\n    if (!gl || !this.waterFBOTexture) return;\n\n    gl.bindTexture(gl.TEXTURE_2D, this.waterFBOTexture);\n    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);\n    gl.bindTexture(gl.TEXTURE_2D, null);\n  }\n\n  /** Redirect all subsequent rendering to the water FBO. */\n  bindOffscreenTarget(): void {\n    const gl = this.gl;\n    if (!gl) return;\n\n    // Lazy init on first use\n    if (!this.waterFBO && !this.initWaterEffect()) return;\n\n    // Flush any pending draws to the CURRENT framebuffer (default) before switching\n    this.batcher?.flush();\n    this.rectBatcher?.flush();\n\n    gl.bindFramebuffer(gl.FRAMEBUFFER, this.waterFBO);\n    gl.viewport(0, 0, this._width, this._height);\n    gl.clearColor(0, 0, 0, 1);\n    gl.clear(gl.COLOR_BUFFER_BIT);\n  }\n\n  /** Redirect rendering back to the default framebuffer (screen). */\n  unbindOffscreenTarget(): void {\n    const gl = this.gl;\n    if (!gl) return;\n\n    // Flush draws that went to the FBO\n    this.batcher?.flush();\n    this.rectBatcher?.flush();\n\n    gl.bindFramebuffer(gl.FRAMEBUFFER, null);\n    gl.viewport(0, 0, this._width, this._height);\n  }\n\n  /**\n   * Apply water ripple post-processing effect.\n   * Reads the scene from the water FBO texture and draws it to the screen\n   * with UV distortion from the water shader.\n   */\n  applyWaterEffect(time: number): void {\n    const gl = this.gl;\n    const wp = this.waterProgram;\n    if (!gl || !wp || !this.waterFBOTexture || !this.waterVAO) return;\n\n    // Bind water shader\n    gl.useProgram(wp.program);\n    this.glState.invalidateProgram();\n\n    // Set uniforms\n    gl.uniform1f(wp.u_time, time);\n    gl.uniform2f(wp.u_resolution, this._width, this._height);\n\n    // Directional waves\n    // Wave 0: amplitude=6, frequency=8, density=0.02, angle=5π/6, phi=1.0\n    const angle0 = (5 * Math.PI) / 6;\n    gl.uniform1f(wp.u_waveAmp[0], 6.0);\n    gl.uniform1f(wp.u_waveFreq[0], 8.0);\n    gl.uniform1f(wp.u_waveDensity[0], 0.02);\n    gl.uniform1f(wp.u_waveA[0], Math.cos(angle0));\n    gl.uniform1f(wp.u_waveB[0], -Math.sin(angle0));\n    gl.uniform1f(wp.u_wavePhi[0], 1.0);\n\n    // Wave 1: amplitude=10, frequency=3, density=0.01, angle=7π/6, phi=0.0\n    const angle1 = (7 * Math.PI) / 6;\n    gl.uniform1f(wp.u_waveAmp[1], 10.0);\n    gl.uniform1f(wp.u_waveFreq[1], 3.0);\n    gl.uniform1f(wp.u_waveDensity[1], 0.01);\n    gl.uniform1f(wp.u_waveA[1], Math.cos(angle1));\n    gl.uniform1f(wp.u_waveB[1], -Math.sin(angle1));\n    gl.uniform1f(wp.u_wavePhi[1], 0.0);\n\n    // Fixed ripple: amplitude=15, frequency=5, density=0.015, pos=(-100, 600)\n    gl.uniform1f(wp.u_rippleAmp, 15.0);\n    gl.uniform1f(wp.u_rippleFreq, 5.0);\n    gl.uniform1f(wp.u_rippleDensity, 0.015);\n    gl.uniform2f(wp.u_ripplePos, -100.0, 600.0);\n\n    // Light params\n    gl.uniform1f(wp.u_lightDefaultAlpha, 0.9);\n    gl.uniform1f(wp.u_lightMinAlpha, 0.85);\n\n    // Bind FBO texture to unit 0\n    gl.activeTexture(gl.TEXTURE0);\n    gl.bindTexture(gl.TEXTURE_2D, this.waterFBOTexture);\n\n    // Draw fullscreen quad\n    gl.disable(gl.BLEND);\n    (gl as WebGL2RenderingContext).bindVertexArray(this.waterVAO);\n    gl.drawArrays(gl.TRIANGLES, 0, 6);\n    (gl as WebGL2RenderingContext).bindVertexArray(null);\n    gl.enable(gl.BLEND);\n\n    // Restore previous GL state\n    gl.bindTexture(gl.TEXTURE_2D, null);\n    gl.activeTexture(gl.TEXTURE0);\n\n    // Invalidate state cache so the next batcher flush correctly re-binds its program/VAO\n    this.glState.invalidateAll();\n  }\n\n  /** Clean up water effect GPU resources. */\n  private disposeWaterEffect(): void {\n    const gl = this.gl;\n    if (!gl) return;\n\n    if (this.waterFBO) {\n      gl.deleteFramebuffer(this.waterFBO);\n      this.waterFBO = null;\n    }\n    if (this.waterFBOTexture) {\n      gl.deleteTexture(this.waterFBOTexture);\n      this.waterFBOTexture = null;\n    }\n    if (this.waterVAO) {\n      (gl as WebGL2RenderingContext).deleteVertexArray(this.waterVAO);\n      this.waterVAO = null;\n    }\n    if (this.waterVBO) {\n      gl.deleteBuffer(this.waterVBO);\n      this.waterVBO = null;\n    }\n    if (this.waterProgram) {\n      gl.deleteProgram(this.waterProgram.program);\n      this.waterProgram = null;\n    }\n  }\n\n  // ============= 纹理管理 =============\n\n  createTexture(source: TextureSource): TextureInfo {\n    const gl = this.gl;\n    if (!gl) {\n      return { id: -1, width: 0, height: 0, isReady: false };\n    }\n\n    const glTexture = gl.createTexture();\n    if (!glTexture) {\n      return { id: -1, width: 0, height: 0, isReady: false };\n    }\n\n    gl.bindTexture(gl.TEXTURE_2D, glTexture);\n\n    // 像素风格：最近邻采样\n    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);\n    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);\n    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);\n    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);\n\n    // 上传纹理数据\n    this.uploadTexture(gl, source);\n\n    const id = this.nextTextureId++;\n    const width = source instanceof ImageData ? source.width : source.width;\n    const height = source instanceof ImageData ? source.height : source.height;\n\n    const entry: WebGLTextureEntry = {\n      id,\n      width,\n      height,\n      isReady: true,\n      glTexture,\n      source: null, // 不保留源引用以节省内存\n    };\n\n    this.textures.set(id, entry);\n    return entry;\n  }\n\n  updateTexture(texture: TextureInfo, source: TextureSource): void {\n    const gl = this.gl;\n    if (!gl) return;\n\n    const entry = this.textures.get(texture.id);\n    if (!entry) return;\n\n    const srcW = source.width;\n    const srcH = source.height;\n\n    gl.bindTexture(gl.TEXTURE_2D, entry.glTexture);\n\n    // 尺寸未变 → texSubImage2D 增量上传（避免 GPU 重新分配纹理内存，\n    // 这是 lum-mask 全屏缓冲每帧 14MB+ 上传的关键优化）\n    if (srcW === entry.width && srcH === entry.height) {\n      this.subUploadTexture(gl, source);\n      return;\n    }\n\n    // 尺寸变了 → texImage2D 重新分配\n    this.uploadTexture(gl, source);\n    (entry as { width: number }).width = srcW;\n    (entry as { height: number }).height = srcH;\n  }\n\n  deleteTexture(texture: TextureInfo): void {\n    const gl = this.gl;\n    if (!gl) return;\n\n    const entry = this.textures.get(texture.id);\n    if (entry) {\n      gl.deleteTexture(entry.glTexture);\n      this.textures.delete(texture.id);\n    }\n  }\n\n  releaseSourceTexture(source: TextureSource): void {\n    // ImageData 走独立缓存\n    if (source instanceof ImageData) {\n      const tex = this.imageDataTextureCache.get(source);\n      if (tex) {\n        this.deleteTexture(tex);\n        this.imageDataTextureCache.delete(source);\n      }\n      return;\n    }\n    // Canvas / HTMLImageElement / OffscreenCanvas 走 WeakMap 缓存\n    const tex = this.sourceTextureCache.get(source);\n    if (tex) {\n      this.deleteTexture(tex);\n      this.sourceTextureCache.delete(source);\n      // 取消 FinalizationRegistry 注册（已手动释放，无需 GC 回调）\n      this.sourceTextureRegistry.unregister(source);\n    }\n  }\n\n  updateSourceTexture(source: TextureSource): void {\n    if (source instanceof ImageData) return;\n    const tex = this.sourceTextureCache.get(source);\n    if (tex) {\n      this.updateTexture(tex, source);\n    }\n  }\n\n  prewarmSourceTexture(source: TextureSource): void {\n    this.getOrCreateSourceTexture(source);\n  }\n\n  getTexture(id: TextureId): TextureInfo | null {\n    return this.textures.get(id) ?? null;\n  }\n\n  /** 获取 WebGL 纹理对象（内部使用） */\n  getGLTexture(id: TextureId): WebGLTexture | null {\n    return this.textures.get(id)?.glTexture ?? null;\n  }\n\n  // ============= 精灵绘制 =============\n\n  drawSprite(texture: TextureInfo, x: number, y: number): void {\n    this.drawSpriteEx({\n      texture,\n      x,\n      y,\n    });\n  }\n\n  drawSpriteEx(params: DrawSpriteParams): void {\n    if (!this.batcher) return;\n\n    // 先 flush 矩形批次（保证绘制顺序正确）\n    this.rectBatcher?.flush();\n\n    const entry = this.textures.get(params.texture.id);\n    if (!entry) return;\n\n    const texWidth = entry.width;\n    const texHeight = entry.height;\n\n    const dx = params.x;\n    const dy = params.y;\n    const dw = params.dstWidth ?? params.srcWidth ?? texWidth;\n    const dh = params.dstHeight ?? params.srcHeight ?? texHeight;\n\n    // 归一化 UV 坐标\n    const sx = (params.srcX ?? 0) / texWidth;\n    const sy = (params.srcY ?? 0) / texHeight;\n    const sw = (params.srcWidth ?? texWidth) / texWidth;\n    const sh = (params.srcHeight ?? texHeight) / texHeight;\n\n    // 翻转处理（通过交换 UV）\n    let u0 = sx;\n    let u1 = sx + sw;\n    if (params.flipX) {\n      const tmp = u0;\n      u0 = u1;\n      u1 = tmp;\n    }\n\n    const alpha = (params.alpha ?? 1) * this.currentState.alpha;\n    const filter = params.filter ?? this.currentState.filter;\n\n    // 确保当前混合模式已应用\n    this.applyBlendMode();\n\n    this.batcher.draw(\n      entry.glTexture,\n      entry.id,\n      dx,\n      dy,\n      dw,\n      dh,\n      u0,\n      sy,\n      u1 - u0,\n      sh,\n      alpha,\n      filter\n    );\n  }\n\n  // ============= 矩形绘制 =============\n\n  fillRect(params: FillRectParams): void {\n    if (!this.rectBatcher) return;\n\n    // 先 flush 精灵批次（保证绘制顺序正确）\n    this.batcher?.flush();\n\n    // 解析颜色（带缓存）\n    let color = this.colorCache.get(params.color);\n    if (!color) {\n      color = parseColor(params.color);\n      this.colorCache.set(params.color, color);\n    }\n\n    this.applyBlendMode();\n    this.rectBatcher.draw(\n      params.x,\n      params.y,\n      params.width,\n      params.height,\n      color,\n      this.currentState.alpha\n    );\n  }\n\n  // ============= 状态管理 =============\n\n  save(): void {\n    this.stateStack.push({ ...this.currentState });\n  }\n\n  restore(): void {\n    const prev = this.stateStack.pop();\n    if (prev) {\n      // 如果混合模式变了，需要先 flush 所有批次\n      if (prev.blendMode !== this.currentState.blendMode) {\n        this.batcher?.flush();\n        this.rectBatcher?.flush();\n      }\n      this.currentState = prev;\n    }\n  }\n\n  setAlpha(alpha: number): void {\n    this.currentState.alpha = alpha;\n  }\n\n  setBlendMode(mode: BlendMode): void {\n    if (mode !== this.currentState.blendMode) {\n      // 混合模式改变需要 flush 所有批次\n      this.batcher?.flush();\n      this.rectBatcher?.flush();\n      this.currentState.blendMode = mode;\n    }\n  }\n\n  setFilter(filter: ColorFilter): void {\n    this.currentState.filter = filter;\n  }\n\n  // ============= 查询 =============\n\n  getStats(): RenderStats {\n    return { ...this.lastFrameStats };\n  }\n\n  /**\n   * 计算当前 GPU 纹理内存占用（字节）\n   * 来自 textures Map 中每个纹理的 width * height * 4 (RGBA)\n   */\n  getMemoryBytes(): number {\n    let total = 0;\n    for (const tex of this.textures.values()) {\n      total += tex.width * tex.height * 4;\n    }\n    return total;\n  }\n\n  getCanvas(): HTMLCanvasElement | null {\n    return this.canvas;\n  }\n\n  // ============= 内部方法 =============\n\n  /** 上传纹理数据到 GPU */\n  private uploadTexture(gl: WebGLRenderingContext, source: TextureSource): void {\n    if (source instanceof ImageData) {\n      gl.texImage2D(\n        gl.TEXTURE_2D,\n        0,\n        gl.RGBA,\n        source.width,\n        source.height,\n        0,\n        gl.RGBA,\n        gl.UNSIGNED_BYTE,\n        source.data\n      );\n    } else if (source instanceof HTMLCanvasElement || source instanceof HTMLImageElement) {\n      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);\n    } else if (source instanceof ImageBitmap) {\n      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);\n    } else if (source instanceof OffscreenCanvas) {\n      // OffscreenCanvas → 先转为 ImageBitmap 或直接传\n      // WebGL1 texImage2D 支持 OffscreenCanvas 作为 TexImageSource 在大多数浏览器中\n      gl.texImage2D(\n        gl.TEXTURE_2D,\n        0,\n        gl.RGBA,\n        gl.RGBA,\n        gl.UNSIGNED_BYTE,\n        source as unknown as TexImageSource\n      );\n    }\n  }\n\n  /**\n   * 增量上传纹理数据（texSubImage2D，假设纹理已分配且尺寸匹配）。\n   * 避免 GPU 重新分配纹理内存——对于 lum-mask 等每帧更新的大纹理，\n   * 这能将上传开销大幅降低，因为底层 Metal/GL 驱动只需 memcpy 到现有显存。\n   */\n  private subUploadTexture(gl: WebGLRenderingContext, source: TextureSource): void {\n    if (source instanceof ImageData) {\n      gl.texSubImage2D(\n        gl.TEXTURE_2D,\n        0,\n        0,\n        0,\n        source.width,\n        source.height,\n        gl.RGBA,\n        gl.UNSIGNED_BYTE,\n        source.data\n      );\n    } else if (\n      source instanceof HTMLCanvasElement ||\n      source instanceof HTMLImageElement ||\n      source instanceof ImageBitmap\n    ) {\n      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);\n    } else if (source instanceof OffscreenCanvas) {\n      gl.texSubImage2D(\n        gl.TEXTURE_2D,\n        0,\n        0,\n        0,\n        gl.RGBA,\n        gl.UNSIGNED_BYTE,\n        source as unknown as TexImageSource\n      );\n    }\n  }\n\n  /** 应用当前混合模式到 WebGL 状态（带脏标记，仅在实际变化时调用 gl.blendFunc） */\n  private applyBlendMode(): void {\n    const mode = this.currentState.blendMode;\n    if (mode === this.lastAppliedBlendMode) return;\n\n    const gl = this.gl;\n    if (!gl) return;\n\n    this.lastAppliedBlendMode = mode;\n\n    switch (mode) {\n      case \"normal\":\n        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);\n        break;\n      case \"multiply\":\n        gl.blendFunc(gl.DST_COLOR, gl.ZERO);\n        break;\n      case \"additive\":\n        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);\n        break;\n      case \"screen\":\n        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_COLOR);\n        break;\n    }\n  }\n\n  // ============= 便捷绘制方法 =============\n\n  /** 获取或创建 source 的缓存纹理 */\n  private getOrCreateSourceTexture(source: TextureSource): TextureInfo | null {\n    if (source instanceof ImageData) {\n      // ImageData 使用独立的 Map 缓存（同一 ImageData 对象反复绘制时复用纹理）\n      let tex = this.imageDataTextureCache.get(source);\n      if (!tex) {\n        tex = this.createTexture(source);\n        this.imageDataTextureCache.set(source, tex);\n      }\n      return tex;\n    }\n    let tex = this.sourceTextureCache.get(source);\n    if (!tex) {\n      tex = this.createTexture(source);\n      this.sourceTextureCache.set(source, tex);\n      // 注册 GC 回调：当 source 被回收时自动释放 GPU 纹理\n      // 第三参数为 unregisterToken，用于 releaseSourceTexture 时取消注册\n      this.sourceTextureRegistry.register(source, tex.id, source);\n    }\n    return tex;\n  }\n\n  drawSource(source: TextureSource, x: number, y: number): void {\n    const tex = this.getOrCreateSourceTexture(source);\n    if (tex) this.drawSprite(tex, x, y);\n  }\n\n  drawSourceEx(source: TextureSource, x: number, y: number, options: DrawSourceOptions): void {\n    const tex = this.getOrCreateSourceTexture(source);\n    if (!tex) return;\n\n    const srcW = options.srcWidth ?? tex.width;\n    const srcH = options.srcHeight ?? tex.height;\n    const dstW = options.dstWidth ?? srcW;\n    const dstH = options.dstHeight ?? srcH;\n\n    this.drawSpriteEx({\n      texture: tex,\n      x,\n      y,\n      dstWidth: dstW,\n      dstHeight: dstH,\n      srcX: options.srcX ?? 0,\n      srcY: options.srcY ?? 0,\n      srcWidth: srcW,\n      srcHeight: srcH,\n      flipX: options.flipX ?? false,\n      alpha: options.alpha,\n      filter: options.filter,\n    });\n  }\n\n  getContext2D(): CanvasRenderingContext2D | null {\n    return null;\n  }\n\n  applyWorldScale(worldWidth: number, worldHeight: number): void {\n    const gl = this.gl;\n    if (!gl) return;\n    // flush pending draws before changing resolution\n    this.batcher?.flush();\n    this.rectBatcher?.flush();\n    if (this.spriteProgram) {\n      gl.useProgram(this.spriteProgram.program);\n      gl.uniform2f(this.spriteProgram.u_resolution, worldWidth, worldHeight);\n    }\n    if (this.rectProgram) {\n      gl.useProgram(this.rectProgram.program);\n      gl.uniform2f(this.rectProgram.u_resolution, worldWidth, worldHeight);\n    }\n    this.glState.invalidateProgram();\n  }\n\n  resetWorldScale(): void {\n    const gl = this.gl;\n    if (!gl) return;\n    this.batcher?.flush();\n    this.rectBatcher?.flush();\n    if (this.spriteProgram) {\n      gl.useProgram(this.spriteProgram.program);\n      gl.uniform2f(this.spriteProgram.u_resolution, this._width, this._height);\n    }\n    if (this.rectProgram) {\n      gl.useProgram(this.rectProgram.program);\n      gl.uniform2f(this.rectProgram.u_resolution, this._width, this._height);\n    }\n    this.glState.invalidateProgram();\n  }\n}\n\n",
-    "packages/engine/src/renderer/shaders.ts": "/**\n * WebGL Shader 系统\n *\n * 提供 shader 编译、链接和管理功能。\n * 包含两套 shader：\n * 1. Sprite Shader - 用于精灵/纹理绘制（drawImage 替代）\n * 2. Rect Shader - 用于矩形填充（fillRect 替代）\n */\n\nimport { logger } from \"../core/logger\";\n\n// ============= Shader 源码 =============\n\n/** 精灵顶点着色器 - 接收 position + texcoord，输出 UV */\nexport const SPRITE_VERTEX_SHADER = `\n  attribute vec2 a_position;\n  attribute vec2 a_texcoord;\n  attribute float a_alpha;\n  attribute float a_filterType;\n  attribute float a_texIndex;\n\n  uniform vec2 u_resolution;\n\n  varying vec2 v_texcoord;\n  varying float v_alpha;\n  varying float v_filterType;\n  varying float v_texIndex;\n\n  void main() {\n    // 像素坐标 → clip space (-1 ~ 1)\n    vec2 clipSpace = (a_position / u_resolution) * 2.0 - 1.0;\n    // Y 轴翻转（屏幕坐标 Y 向下，WebGL Y 向上）\n    gl_Position = vec4(clipSpace.x, -clipSpace.y, 0.0, 1.0);\n\n    v_texcoord = a_texcoord;\n    v_alpha = a_alpha;\n    v_filterType = a_filterType;\n    v_texIndex = a_texIndex;\n  }\n`;\n\n/** 多纹理批处理：单次 draw call 内同时绑定多个纹理槽位（典型 8 槽） */\nexport const MAX_TEXTURE_SLOTS = 8;\n\n/** 精灵片段着色器 - 采样纹理 + 应用颜色滤镜 + alpha */\nexport const SPRITE_FRAGMENT_SHADER = `\n  precision mediump float;\n\n  uniform sampler2D u_textures[8];\n\n  varying vec2 v_texcoord;\n  varying float v_alpha;\n  varying float v_filterType;\n  varying float v_texIndex;\n\n  // 灰度转换系数（Rec. 709）\n  const vec3 GRAYSCALE_WEIGHTS = vec3(0.2126, 0.7152, 0.0722);\n\n  // WebGL1 GLSL 不允许 sampler 数组的动态索引，必须用常量索引；\n  // 这里用 if/else 链按 v_texIndex 分发到 8 个槽位。\n  vec4 sampleSlot(vec2 uv, float idx) {\n    if (idx < 0.5) return texture2D(u_textures[0], uv);\n    else if (idx < 1.5) return texture2D(u_textures[1], uv);\n    else if (idx < 2.5) return texture2D(u_textures[2], uv);\n    else if (idx < 3.5) return texture2D(u_textures[3], uv);\n    else if (idx < 4.5) return texture2D(u_textures[4], uv);\n    else if (idx < 5.5) return texture2D(u_textures[5], uv);\n    else if (idx < 6.5) return texture2D(u_textures[6], uv);\n    else return texture2D(u_textures[7], uv);\n  }\n\n  void main() {\n    vec4 color = sampleSlot(v_texcoord, v_texIndex);\n\n    // filterType: 0=none, 1=grayscale, 2=frozen, 3=poison\n    if (v_filterType > 0.5) {\n      if (v_filterType < 1.5) {\n        // Grayscale (石化)\n        float gray = dot(color.rgb, GRAYSCALE_WEIGHTS);\n        color.rgb = vec3(gray);\n      } else if (v_filterType < 2.5) {\n        // Frozen (冰冻蓝) - 模拟 sepia(100%) saturate(300%) hue-rotate(180deg)\n        float gray = dot(color.rgb, GRAYSCALE_WEIGHTS);\n        // Sepia tone\n        vec3 sepia = clamp(vec3(gray * 1.2, gray * 1.0, gray * 0.8), 0.0, 1.0);\n        // Saturate × 3\n        vec3 mid = vec3(0.5);\n        sepia = clamp(mid + (sepia - mid) * 3.0, 0.0, 1.0);\n        // Hue rotate 180deg - 标准色相旋转矩阵 (cos=-1, sin=0)\n        // R' = -1/3*R + 2/3*G + 2/3*B\n        // G' =  2/3*R - 1/3*G + 2/3*B\n        // B' =  2/3*R + 2/3*G - 1/3*B\n        color.rgb = clamp(vec3(\n          (-1.0/3.0)*sepia.r + (2.0/3.0)*sepia.g + (2.0/3.0)*sepia.b,\n          ( 2.0/3.0)*sepia.r + (-1.0/3.0)*sepia.g + (2.0/3.0)*sepia.b,\n          ( 2.0/3.0)*sepia.r + (2.0/3.0)*sepia.g + (-1.0/3.0)*sepia.b\n        ), 0.0, 1.0);\n      } else {\n        // Poison (中毒绿) - 模拟 sepia(100%) saturate(300%) hue-rotate(60deg)\n        float gray = dot(color.rgb, GRAYSCALE_WEIGHTS);\n        vec3 sepia = vec3(gray * 1.2, gray * 1.0, gray * 0.8);\n        vec3 mid = vec3(0.5);\n        sepia = mid + (sepia - mid) * 3.0;\n        // Hue rotate 60deg (shift toward green)\n        color.rgb = vec3(\n          clamp(sepia.r * 0.5, 0.0, 1.0),\n          clamp(sepia.g * 1.2 + 0.1, 0.0, 1.0),\n          clamp(sepia.b * 0.3, 0.0, 1.0)\n        );\n      }\n    }\n\n    color.a *= v_alpha;\n\n    // 预乘 alpha（WebGL 标准做法）\n    // 注意：源纹理可能已经是预乘的（来自 Canvas2D），这里确保一致性\n    gl_FragColor = color;\n  }\n`;\n\n/** 矩形填充顶点着色器（per-vertex color，所有颜色矩形可在一个 draw call 中完成） */\nexport const RECT_VERTEX_SHADER = `\n  attribute vec2 a_position;\n  attribute vec4 a_color;\n\n  uniform vec2 u_resolution;\n\n  varying vec4 v_color;\n\n  void main() {\n    vec2 clipSpace = (a_position / u_resolution) * 2.0 - 1.0;\n    gl_Position = vec4(clipSpace.x, -clipSpace.y, 0.0, 1.0);\n    v_color = a_color;\n  }\n`;\n\n/** 矩形填充片段着色器（per-vertex color） */\nexport const RECT_FRAGMENT_SHADER = `\n  precision mediump float;\n\n  varying vec4 v_color;\n\n  void main() {\n    gl_FragColor = v_color;\n  }\n`;\n\n// ============= Shader 工具函数 =============\n\n/**\n * 编译单个 shader\n */\nexport function compileShader(\n  gl: WebGLRenderingContext,\n  type: number,\n  source: string\n): WebGLShader | null {\n  const shader = gl.createShader(type);\n  if (!shader) {\n    logger.error(\"[WebGL] Failed to create shader\");\n    return null;\n  }\n\n  gl.shaderSource(shader, source);\n  gl.compileShader(shader);\n\n  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {\n    const info = gl.getShaderInfoLog(shader);\n    logger.error(`[WebGL] Shader compile error: ${info}`);\n    gl.deleteShader(shader);\n    return null;\n  }\n\n  return shader;\n}\n\n/**\n * 链接 shader program\n */\nexport function createProgram(\n  gl: WebGLRenderingContext,\n  vertexSource: string,\n  fragmentSource: string\n): WebGLProgram | null {\n  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexSource);\n  if (!vertexShader) return null;\n\n  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);\n  if (!fragmentShader) {\n    gl.deleteShader(vertexShader);\n    return null;\n  }\n\n  const program = gl.createProgram();\n  if (!program) {\n    gl.deleteShader(vertexShader);\n    gl.deleteShader(fragmentShader);\n    return null;\n  }\n\n  gl.attachShader(program, vertexShader);\n  gl.attachShader(program, fragmentShader);\n  gl.linkProgram(program);\n\n  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {\n    const info = gl.getProgramInfoLog(program);\n    logger.error(`[WebGL] Program link error: ${info}`);\n    gl.deleteProgram(program);\n    gl.deleteShader(vertexShader);\n    gl.deleteShader(fragmentShader);\n    return null;\n  }\n\n  // Shader 对象 linked 后可以释放\n  gl.deleteShader(vertexShader);\n  gl.deleteShader(fragmentShader);\n\n  return program;\n}\n\n// ============= Shader Program 封装 =============\n\n/** 精灵着色器程序 - 缓存 attribute/uniform 位置 */\nexport interface SpriteProgram {\n  program: WebGLProgram;\n  // Attributes\n  a_position: number;\n  a_texcoord: number;\n  a_alpha: number;\n  a_filterType: number;\n  a_texIndex: number;\n  // Uniforms\n  u_resolution: WebGLUniformLocation;\n  /** sampler 数组（长度 = MAX_TEXTURE_SLOTS） */\n  u_textures: WebGLUniformLocation[];\n}\n\n/** 矩形着色器程序（per-vertex color） */\nexport interface RectProgram {\n  program: WebGLProgram;\n  a_position: number;\n  a_color: number;\n  u_resolution: WebGLUniformLocation;\n}\n\n/**\n * 创建并初始化精灵着色器程序\n */\nexport function createSpriteProgram(gl: WebGLRenderingContext): SpriteProgram | null {\n  const program = createProgram(gl, SPRITE_VERTEX_SHADER, SPRITE_FRAGMENT_SHADER);\n  if (!program) return null;\n\n  const u_textures: WebGLUniformLocation[] = [];\n  for (let i = 0; i < MAX_TEXTURE_SLOTS; i++) {\n    const loc = gl.getUniformLocation(program, `u_textures[${i}]`);\n    if (!loc) {\n      logger.error(`[WebGL] Failed to get u_textures[${i}] uniform location`);\n      return null;\n    }\n    u_textures.push(loc);\n  }\n\n  return {\n    program,\n    a_position: gl.getAttribLocation(program, \"a_position\"),\n    a_texcoord: gl.getAttribLocation(program, \"a_texcoord\"),\n    a_alpha: gl.getAttribLocation(program, \"a_alpha\"),\n    a_filterType: gl.getAttribLocation(program, \"a_filterType\"),\n    a_texIndex: gl.getAttribLocation(program, \"a_texIndex\"),\n    u_resolution: gl.getUniformLocation(program, \"u_resolution\")!,\n    u_textures,\n  };\n}\n\n/**\n * 创建并初始化矩形着色器程序\n */\nexport function createRectProgram(gl: WebGLRenderingContext): RectProgram | null {\n  const program = createProgram(gl, RECT_VERTEX_SHADER, RECT_FRAGMENT_SHADER);\n  if (!program) return null;\n\n  return {\n    program,\n    a_position: gl.getAttribLocation(program, \"a_position\"),\n    a_color: gl.getAttribLocation(program, \"a_color\"),\n    u_resolution: gl.getUniformLocation(program, \"u_resolution\")!,\n  };\n}\n\n// ============= Water Effect Shader =============\n\n/** 水波纹后处理顶点着色器 — 全屏 quad，传递 UV 坐标 */\nexport const WATER_VERTEX_SHADER = `\n  attribute vec2 a_position;\n  attribute vec2 a_texcoord;\n\n  varying vec2 v_texCoord;\n\n  void main() {\n    gl_Position = vec4(a_position, 0.0, 1.0);\n    v_texCoord = a_texcoord;\n  }\n`;\n\n/**\n * 水波纹后处理片段着色器\n * 三种波浪叠加：方向波 + 固定涟漪 + 光照 alpha 调制\n */\nexport const WATER_FRAGMENT_SHADER = `\n  precision mediump float;\n\n  uniform sampler2D u_sceneTexture;\n  uniform vec2 u_resolution;\n  uniform float u_time;\n\n  // 方向波（2 条）\n  uniform float u_waveAmp[2];\n  uniform float u_waveFreq[2];\n  uniform float u_waveDensity[2];\n  uniform float u_waveA[2];\n  uniform float u_waveB[2];\n  uniform float u_wavePhi[2];\n\n  // 固定涟漪（1 个）\n  uniform float u_rippleAmp;\n  uniform float u_rippleFreq;\n  uniform float u_rippleDensity;\n  uniform vec2 u_ripplePos;\n\n  // 光照参数\n  uniform float u_lightDefaultAlpha;\n  uniform float u_lightMinAlpha;\n\n  varying vec2 v_texCoord;\n\n  void main() {\n    vec2 pos = v_texCoord * u_resolution;\n    vec2 offset = vec2(0.0);\n    float t = u_time;\n\n    // 方向波叠加\n    for (int i = 0; i < 2; i++) {\n      float dist_to_line = u_waveA[i] * pos.x + u_waveB[i] * pos.y + u_wavePhi[i];\n      float line_offset = u_waveAmp[i] * sin(u_waveFreq[i] * t - u_waveDensity[i] * dist_to_line);\n      offset.x += line_offset * u_waveA[i];\n      offset.y += line_offset * u_waveB[i];\n    }\n\n    // 固定涟漪\n    float dx = pos.x - u_ripplePos.x;\n    float dy = pos.y - u_ripplePos.y;\n    float angle = atan(-dy, dx);\n    float dist = sqrt(dx * dx + dy * dy);\n    float ripple = u_rippleAmp * cos(u_rippleFreq * t - u_rippleDensity * dist);\n    offset.x += ripple * cos(angle);\n    offset.y += ripple * -sin(angle);\n\n    // 光照 alpha：基于位移幅度近似\n    float disp = length(offset);\n    float alpha = u_lightDefaultAlpha;\n    if (disp > 0.5) {\n      alpha = clamp(disp * 0.01 + u_lightDefaultAlpha, u_lightMinAlpha, 1.0);\n    }\n\n    // UV 位移采样（反向：位移 +d 像素 → 采样 UV - d/resolution）\n    vec2 uv = v_texCoord - offset / u_resolution;\n    uv = clamp(uv, 0.0, 1.0);\n\n    vec4 color = texture2D(u_sceneTexture, uv);\n    color.a *= alpha;\n    gl_FragColor = color;\n  }\n`;\n\n/** 水波纹着色器程序 */\nexport interface WaterProgram {\n  program: WebGLProgram;\n  // Attributes\n  a_position: number;\n  a_texcoord: number;\n  // Uniforms\n  u_sceneTexture: WebGLUniformLocation;\n  u_resolution: WebGLUniformLocation;\n  u_time: WebGLUniformLocation;\n  // Wave uniforms\n  u_waveAmp: WebGLUniformLocation[];\n  u_waveFreq: WebGLUniformLocation[];\n  u_waveDensity: WebGLUniformLocation[];\n  u_waveA: WebGLUniformLocation[];\n  u_waveB: WebGLUniformLocation[];\n  u_wavePhi: WebGLUniformLocation[];\n  // Ripple uniforms\n  u_rippleAmp: WebGLUniformLocation;\n  u_rippleFreq: WebGLUniformLocation;\n  u_rippleDensity: WebGLUniformLocation;\n  u_ripplePos: WebGLUniformLocation;\n  // Light uniforms\n  u_lightDefaultAlpha: WebGLUniformLocation;\n  u_lightMinAlpha: WebGLUniformLocation;\n}\n\n/**\n * 创建并初始化水波纹后处理着色器程序\n */\nexport function createWaterProgram(gl: WebGLRenderingContext): WaterProgram | null {\n  const program = createProgram(gl, WATER_VERTEX_SHADER, WATER_FRAGMENT_SHADER);\n  if (!program) return null;\n\n  const getU = (name: string): WebGLUniformLocation => {\n    return gl.getUniformLocation(program, name)!;\n  };\n\n  const waveAmp: WebGLUniformLocation[] = [];\n  const waveFreq: WebGLUniformLocation[] = [];\n  const waveDensity: WebGLUniformLocation[] = [];\n  const waveA: WebGLUniformLocation[] = [];\n  const waveB: WebGLUniformLocation[] = [];\n  const wavePhi: WebGLUniformLocation[] = [];\n  for (let i = 0; i < 2; i++) {\n    waveAmp.push(getU(`u_waveAmp[${i}]`));\n    waveFreq.push(getU(`u_waveFreq[${i}]`));\n    waveDensity.push(getU(`u_waveDensity[${i}]`));\n    waveA.push(getU(`u_waveA[${i}]`));\n    waveB.push(getU(`u_waveB[${i}]`));\n    wavePhi.push(getU(`u_wavePhi[${i}]`));\n  }\n\n  return {\n    program,\n    a_position: gl.getAttribLocation(program, \"a_position\"),\n    a_texcoord: gl.getAttribLocation(program, \"a_texcoord\"),\n    u_sceneTexture: getU(\"u_sceneTexture\"),\n    u_resolution: getU(\"u_resolution\"),\n    u_time: getU(\"u_time\"),\n    u_waveAmp: waveAmp,\n    u_waveFreq: waveFreq,\n    u_waveDensity: waveDensity,\n    u_waveA: waveA,\n    u_waveB: waveB,\n    u_wavePhi: wavePhi,\n    u_rippleAmp: getU(\"u_rippleAmp\"),\n    u_rippleFreq: getU(\"u_rippleFreq\"),\n    u_rippleDensity: getU(\"u_rippleDensity\"),\n    u_ripplePos: getU(\"u_ripplePos\"),\n    u_lightDefaultAlpha: getU(\"u_lightDefaultAlpha\"),\n    u_lightMinAlpha: getU(\"u_lightMinAlpha\"),\n  };\n}\n",
-    "packages/engine/src/renderer/sprite-batcher.ts": "/**\n * WebGL SpriteBatcher - 精灵批量渲染器（多纹理批处理版本）\n *\n * 核心性能优化组件：将成百上千次 drawImage 调用合并为少量 WebGL draw call。\n *\n * 多纹理批处理（multi-texture batching）：\n * - 单批次可同时绑定 MAX_TEXTURE_SLOTS 个不同纹理（典型 8）\n * - 每个 sprite 顶点带 a_texIndex（0..7），fragment shader 按索引采样\n * - 切纹理不再强制 flush —— 仅当 8 个槽位全满且来了第 9 个新纹理时才 flush\n * - 实测可将单 sprite/2 sprite 的小 batch 从 78% 降到 <10%\n *\n * 顶点格式 (每顶点 7 个 float):\n * [posX, posY, texU, texV, alpha, filterType, texIndex]\n *\n * 批量大小：最多 MAX_SPRITES_PER_BATCH 个精灵可以在一次 draw call 中绘制\n */\n\nimport { logger } from \"../core/logger\";\nimport type { GLStateCache } from \"./gl-state-cache\";\nimport { MAX_TEXTURE_SLOTS, type SpriteProgram } from \"./shaders\";\nimport type { ColorFilter, TextureId } from \"./types\";\n\n/** 每个精灵的顶点数（2 个三角形 = 6 个顶点） */\nconst VERTICES_PER_SPRITE = 6;\n\n/** 每个顶点的 float 数量 [x, y, u, v, alpha, filterType, texIndex] */\nconst FLOATS_PER_VERTEX = 7;\n\n/** 每个精灵的 float 数量 */\nconst FLOATS_PER_SPRITE = VERTICES_PER_SPRITE * FLOATS_PER_VERTEX;\n\n/** 单批次最大精灵数（8192 = 约 1.4MB buffer，覆盖绝大多数场景） */\nconst MAX_SPRITES_PER_BATCH = 8192;\n\n/** ColorFilter → float ID 映射（传入 shader 的 a_filterType） */\nconst FILTER_TYPE_MAP: Record<ColorFilter, number> = {\n  none: 0,\n  grayscale: 1,\n  frozen: 2,\n  poison: 3,\n};\n\nexport class SpriteBatcher {\n  private gl: WebGLRenderingContext;\n  private program: SpriteProgram;\n  private state: GLStateCache;\n\n  // GPU buffers\n  private vbo: WebGLBuffer;\n  private vao: WebGLVertexArrayObject | null = null;\n  private vertexData: Float32Array;\n\n  // 批次状态\n  private spriteCount = 0;\n  /** 当前 batch 已分配的纹理槽位：TextureId → slotIndex (0..7) */\n  private slotMap = new Map<TextureId, number>();\n  /** 每个槽位对应的 WebGLTexture（用于 flush 时实际绑定） */\n  private slotTextures: (WebGLTexture | null)[] = new Array(MAX_TEXTURE_SLOTS).fill(null);\n  /** 下一个待分配的槽位下标（0..MAX_TEXTURE_SLOTS） */\n  private nextSlot = 0;\n\n  /** u_textures 采样器 uniform 已初始化（值固定为 0..N-1，只需设置一次） */\n  private samplersInitialized = false;\n\n  // 统计\n  private _drawCalls = 0;\n  private _spriteCount = 0;\n  private _textureSwaps = 0;\n\n  constructor(gl: WebGLRenderingContext, program: SpriteProgram, state: GLStateCache) {\n    this.gl = gl;\n    this.program = program;\n    this.state = state;\n\n    // 创建顶点缓冲区\n    this.vbo = gl.createBuffer()!;\n    this.vertexData = new Float32Array(MAX_SPRITES_PER_BATCH * FLOATS_PER_SPRITE);\n\n    // 设置缓冲区\n    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);\n    gl.bufferData(gl.ARRAY_BUFFER, this.vertexData.byteLength, gl.DYNAMIC_DRAW);\n\n    // 创建 VAO（WebGL2 原生支持），将顶点属性指针绑定到 VAO 避免每次 flush 重复设置\n    const gl2 = gl as WebGL2RenderingContext;\n    this.vao = gl2.createVertexArray();\n    if (this.vao) {\n      gl2.bindVertexArray(this.vao);\n      gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);\n\n      const stride = FLOATS_PER_VERTEX * 4;\n      gl.enableVertexAttribArray(program.a_position);\n      gl.vertexAttribPointer(program.a_position, 2, gl.FLOAT, false, stride, 0);\n      gl.enableVertexAttribArray(program.a_texcoord);\n      gl.vertexAttribPointer(program.a_texcoord, 2, gl.FLOAT, false, stride, 8);\n      gl.enableVertexAttribArray(program.a_alpha);\n      gl.vertexAttribPointer(program.a_alpha, 1, gl.FLOAT, false, stride, 16);\n      gl.enableVertexAttribArray(program.a_filterType);\n      gl.vertexAttribPointer(program.a_filterType, 1, gl.FLOAT, false, stride, 20);\n      gl.enableVertexAttribArray(program.a_texIndex);\n      gl.vertexAttribPointer(program.a_texIndex, 1, gl.FLOAT, false, stride, 24);\n\n      gl2.bindVertexArray(null);\n    }\n\n    // 初始化构造期间直接调用了 GL，使外部缓存失效\n    state.invalidateAll();\n\n    logger.info(\n      `[SpriteBatcher] Initialized: maxSprites=${MAX_SPRITES_PER_BATCH}, ` +\n        `bufferSize=${(this.vertexData.byteLength / 1024).toFixed(1)}KB, ` +\n        `texSlots=${MAX_TEXTURE_SLOTS}`\n    );\n  }\n\n  /** 重置每帧统计 */\n  resetStats(): void {\n    this._drawCalls = 0;\n    this._spriteCount = 0;\n    this._textureSwaps = 0;\n  }\n\n  get drawCalls(): number {\n    return this._drawCalls;\n  }\n\n  get totalSprites(): number {\n    return this._spriteCount;\n  }\n\n  get textureSwaps(): number {\n    return this._textureSwaps;\n  }\n\n  /**\n   * 提交一个精灵到批次\n   */\n  draw(\n    glTexture: WebGLTexture,\n    textureId: TextureId,\n    dx: number,\n    dy: number,\n    dw: number,\n    dh: number,\n    sx: number,\n    sy: number,\n    sw: number,\n    sh: number,\n    alpha: number,\n    filter: ColorFilter\n  ): void {\n    // 分配槽位：复用已有 / 占用空闲 / 全满则 flush\n    let slot = this.slotMap.get(textureId);\n    if (slot === undefined) {\n      if (this.nextSlot >= MAX_TEXTURE_SLOTS) {\n        // 所有槽位已被占用，且来了新纹理 → flush 当前 batch\n        this.flush();\n      }\n      slot = this.nextSlot++;\n      this.slotMap.set(textureId, slot);\n      this.slotTextures[slot] = glTexture;\n      this._textureSwaps++;\n    }\n\n    // 批次满 → flush\n    if (this.spriteCount >= MAX_SPRITES_PER_BATCH) {\n      this.flush();\n      // flush 后重新分配槽位（slotMap 已清空）\n      slot = this.nextSlot++;\n      this.slotMap.set(textureId, slot);\n      this.slotTextures[slot] = glTexture;\n      this._textureSwaps++;\n    }\n\n    // 写入顶点数据（2 个三角形 = 6 个顶点）\n    const offset = this.spriteCount * FLOATS_PER_SPRITE;\n    const data = this.vertexData;\n    const a = alpha;\n    const ft = FILTER_TYPE_MAP[filter];\n    const si = slot;\n\n    // 四个角的坐标\n    const x0 = dx;\n    const y0 = dy;\n    const x1 = dx + dw;\n    const y1 = dy + dh;\n    const u0 = sx;\n    const v0 = sy;\n    const u1 = sx + sw;\n    const v1 = sy + sh;\n\n    // 三角形 1: 左上 → 右上 → 左下\n    // 左上\n    data[offset] = x0;\n    data[offset + 1] = y0;\n    data[offset + 2] = u0;\n    data[offset + 3] = v0;\n    data[offset + 4] = a;\n    data[offset + 5] = ft;\n    data[offset + 6] = si;\n    // 右上\n    data[offset + 7] = x1;\n    data[offset + 8] = y0;\n    data[offset + 9] = u1;\n    data[offset + 10] = v0;\n    data[offset + 11] = a;\n    data[offset + 12] = ft;\n    data[offset + 13] = si;\n    // 左下\n    data[offset + 14] = x0;\n    data[offset + 15] = y1;\n    data[offset + 16] = u0;\n    data[offset + 17] = v1;\n    data[offset + 18] = a;\n    data[offset + 19] = ft;\n    data[offset + 20] = si;\n\n    // 三角形 2: 右上 → 右下 → 左下\n    // 右上\n    data[offset + 21] = x1;\n    data[offset + 22] = y0;\n    data[offset + 23] = u1;\n    data[offset + 24] = v0;\n    data[offset + 25] = a;\n    data[offset + 26] = ft;\n    data[offset + 27] = si;\n    // 右下\n    data[offset + 28] = x1;\n    data[offset + 29] = y1;\n    data[offset + 30] = u1;\n    data[offset + 31] = v1;\n    data[offset + 32] = a;\n    data[offset + 33] = ft;\n    data[offset + 34] = si;\n    // 左下\n    data[offset + 35] = x0;\n    data[offset + 36] = y1;\n    data[offset + 37] = u0;\n    data[offset + 38] = v1;\n    data[offset + 39] = a;\n    data[offset + 40] = ft;\n    data[offset + 41] = si;\n\n    this.spriteCount++;\n    this._spriteCount++;\n  }\n\n  /**\n   * 刷新当前批次 → 提交到 GPU 绘制\n   */\n  flush(): void {\n    if (this.spriteCount === 0) return;\n\n    const gl = this.gl;\n    const prog = this.program;\n    const state = this.state;\n    const gl2 = gl as WebGL2RenderingContext;\n\n    // 使用精灵着色器（缓存：跨 flush 一般不变）\n    state.useProgram(gl, prog.program);\n\n    // sampler uniforms 值固定为 0..N-1，仅初始化一次\n    if (!this.samplersInitialized) {\n      for (let i = 0; i < MAX_TEXTURE_SLOTS; i++) {\n        gl.uniform1i(prog.u_textures[i], i);\n      }\n      this.samplersInitialized = true;\n    }\n\n    // 绑定本批次实际用到的每个纹理到对应的 TEXTURE 单元\n    for (let i = 0; i < this.nextSlot; i++) {\n      gl.activeTexture(gl.TEXTURE0 + i);\n      gl.bindTexture(gl.TEXTURE_2D, this.slotTextures[i]);\n    }\n\n    // 绑定 VAO（缓存：跨 flush 一般不变）\n    if (this.vao) {\n      state.bindVAO(gl2, this.vao);\n    }\n\n    // 上传顶点数据（每次必须）\n    // VAO 不保存 ARRAY_BUFFER 全局绑定，需显式绑定后 bufferSubData\n    state.bindArrayBuffer(gl, this.vbo);\n    gl.bufferSubData(\n      gl.ARRAY_BUFFER,\n      0,\n      this.vertexData.subarray(0, this.spriteCount * FLOATS_PER_SPRITE)\n    );\n\n    // 绘制\n    gl.drawArrays(gl.TRIANGLES, 0, this.spriteCount * VERTICES_PER_SPRITE);\n\n    // 重置 active texture 单元，保护外部代码（createTexture/updateTexture 等\n    // 不主动设置 activeTexture，依赖默认为 TEXTURE0）\n    if (this.nextSlot > 1) {\n      gl.activeTexture(gl.TEXTURE0);\n    }\n\n    this._drawCalls++;\n    this.spriteCount = 0;\n\n    // 清空槽位映射准备下一批\n    this.slotMap.clear();\n    for (let i = 0; i < this.nextSlot; i++) {\n      this.slotTextures[i] = null;\n    }\n    this.nextSlot = 0;\n  }\n\n  /**\n   * 释放 GPU 资源\n   */\n  dispose(): void {\n    const gl2 = this.gl as WebGL2RenderingContext;\n    if (this.vao) {\n      gl2.deleteVertexArray(this.vao);\n      this.vao = null;\n    }\n    this.gl.deleteBuffer(this.vbo);\n  }\n}\n",
-    "packages/engine/src/renderer/gl-state-cache.ts": "/**\n * GLStateCache - 跨 batcher/renderer 共享的 WebGL 状态缓存\n *\n * WebGL 命令缓冲是性能瓶颈：每次 `flush()` 重复执行 `useProgram`、\n * `bindBuffer`、`bindVertexArray`、`uniform1i` 等 GL 调用会在\n * 高分辨率/多 batch 场景下让 GPU 命令缓冲饱和。\n *\n * 实测前：一帧 ~590 个 drawArrays × 8 个 GL 调用 ≈ 4700 GL 调用，\n * 其中绝大多数是冗余（program/buffer/VAO 跨 flush 不变）。\n *\n * 通过共享一份\"当前状态\"快照，所有 batcher 在 flush 前用 cache 助手\n * 跳过冗余调用，保留必需的 bindTexture/bufferSubData/drawArrays。\n *\n * 注意：WebGL 上下文跨帧保持状态，因此缓存无需在帧间重置；只在\n * 外部直接修改 GL 状态（如 init/resize 中的 useProgram）时调用\n * invalidate*() 失效相应字段。\n */\nexport class GLStateCache {\n  currentProgram: WebGLProgram | null = null;\n  currentVAO: WebGLVertexArrayObject | null = null;\n  currentArrayBuffer: WebGLBuffer | null = null;\n\n  useProgram(gl: WebGLRenderingContext, program: WebGLProgram): void {\n    if (this.currentProgram !== program) {\n      gl.useProgram(program);\n      this.currentProgram = program;\n    }\n  }\n\n  bindVAO(gl2: WebGL2RenderingContext, vao: WebGLVertexArrayObject | null): void {\n    if (this.currentVAO !== vao) {\n      gl2.bindVertexArray(vao);\n      this.currentVAO = vao;\n    }\n  }\n\n  bindArrayBuffer(gl: WebGLRenderingContext, buffer: WebGLBuffer | null): void {\n    if (this.currentArrayBuffer !== buffer) {\n      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);\n      this.currentArrayBuffer = buffer;\n    }\n  }\n\n  /** 外部直接调用 GL 修改状态后必须失效对应字段。 */\n  invalidateAll(): void {\n    this.currentProgram = null;\n    this.currentVAO = null;\n    this.currentArrayBuffer = null;\n  }\n\n  invalidateProgram(): void {\n    this.currentProgram = null;\n  }\n}\n",
-    "packages/engine/src/renderer/types.ts": "/**\n * WebGL 渲染层核心类型定义\n *\n * 这是渲染抽象层的类型基础，所有渲染器实现（Canvas2D / WebGL）都基于此接口。\n * 设计原则：\n * 1. 接口覆盖当前 Canvas 2D 的所有绘制操作\n * 2. 纹理抽象化，统一 HTMLCanvasElement / WebGLTexture\n * 3. 最小化破坏性改动，保持渐进式迁移能力\n */\n\n// ============= 混合模式 =============\n\n/** 支持的混合模式（映射 Canvas2D globalCompositeOperation 和 WebGL blend func） */\nexport type BlendMode =\n  | \"normal\" // source-over（默认）\n  | \"multiply\" // 颜色相乘（地图着色）\n  | \"additive\" // 加法混合（发光效果）\n  | \"screen\"; // 滤色\n\n// ============= 颜色滤镜 =============\n\n/** 预定义颜色滤镜（映射 CSS filter 到 shader uniform） */\nexport type ColorFilter =\n  | \"none\" // 无滤镜\n  | \"grayscale\" // 灰度（石化 - \"black\"）\n  | \"frozen\" // 冰冻蓝\n  | \"poison\"; // 中毒绿\n\n// ============= 纹理 =============\n\n/** 纹理源类型 */\nexport type TextureSource =\n  | HTMLCanvasElement\n  | HTMLImageElement\n  | ImageBitmap\n  | ImageData\n  | OffscreenCanvas;\n\n/** 纹理 ID（用于缓存和引用） */\nexport type TextureId = number;\n\n/** 纹理信息 */\nexport interface TextureInfo {\n  /** 唯一 ID */\n  readonly id: TextureId;\n  /** 宽度 */\n  readonly width: number;\n  /** 高度 */\n  readonly height: number;\n  /** 纹理是否已上传到 GPU（WebGL 模式） */\n  readonly isReady: boolean;\n}\n\n// ============= 绘制参数 =============\n\n/** 精灵绘制参数 */\nexport interface DrawSpriteParams {\n  /** 纹理 */\n  texture: TextureInfo;\n  /** 目标 X 坐标（屏幕空间） */\n  x: number;\n  /** 目标 Y 坐标（屏幕空间） */\n  y: number;\n  /** 源区域 X（用于纹理图集裁切），默认 0 */\n  srcX?: number;\n  /** 源区域 Y，默认 0 */\n  srcY?: number;\n  /** 源区域宽度，默认纹理宽度 */\n  srcWidth?: number;\n  /** 源区域高度，默认纹理高度 */\n  srcHeight?: number;\n  /** 目标宽度，默认源宽度 */\n  dstWidth?: number;\n  /** 目标高度，默认源高度 */\n  dstHeight?: number;\n  /** 水平翻转 */\n  flipX?: boolean;\n  /** 透明度 0-1，默认 1 */\n  alpha?: number;\n  /** 颜色滤镜 */\n  filter?: ColorFilter;\n}\n\n/** 矩形填充参数 */\nexport interface FillRectParams {\n  x: number;\n  y: number;\n  width: number;\n  height: number;\n  /** CSS 颜色字符串 \"rgba(r,g,b,a)\" 或 \"#hex\" */\n  color: string;\n}\n\n// ============= 渲染状态 =============\n\n/** 渲染器状态快照（用于 save/restore） */\nexport interface RenderState {\n  alpha: number;\n  blendMode: BlendMode;\n  filter: ColorFilter;\n}\n\n// ============= 渲染统计 =============\n\n/** drawSourceEx 选项 */\nexport interface DrawSourceOptions {\n  srcX?: number;\n  srcY?: number;\n  srcWidth?: number;\n  srcHeight?: number;\n  dstWidth?: number;\n  dstHeight?: number;\n  flipX?: boolean;\n  alpha?: number;\n  filter?: ColorFilter;\n}\n\n/** 每帧渲染统计 */\nexport interface RenderStats {\n  /** 绘制调用次数 */\n  drawCalls: number;\n  /** 绘制的精灵/图像数量 */\n  spriteCount: number;\n  /** 绘制的矩形数量 */\n  rectCount: number;\n  /** 纹理切换次数 */\n  textureSwaps: number;\n  /** 当前已上传的纹理总数 */\n  textureCount: number;\n}\n"
+    "cocos/gfx/base/device.ts": "/*\n Copyright (c) 2020-2023 Xiamen Yaji Software Co., Ltd.\n\n https://www.cocos.com/\n\n Permission is hereby granted, free of charge, to any person obtaining a copy\n of this software and associated documentation files (the \"Software\"), to deal\n in the Software without restriction, including without limitation the rights to\n use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies\n of the Software, and to permit persons to whom the Software is furnished to do so,\n subject to the following conditions:\n\n The above copyright notice and this permission notice shall be included in\n all copies or substantial portions of the Software.\n\n THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n THE SOFTWARE.\n*/\n\nimport {\n    API, Feature, MemoryStatus,\n    CommandBufferInfo, BufferInfo, BufferViewInfo, TextureInfo, TextureViewInfo, SamplerInfo, DescriptorSetInfo,\n    ShaderInfo, InputAssemblerInfo, RenderPassInfo, FramebufferInfo, DescriptorSetLayoutInfo, PipelineLayoutInfo,\n    QueueInfo, BufferTextureCopy, DeviceInfo, DeviceCaps, GeneralBarrierInfo, TextureBarrierInfo, BufferBarrierInfo,\n    SwapchainInfo, BindingMappingInfo, Format, FormatFeature, TextureType, TextureUsageBit,\n    TextureFlagBit, Offset, Extent, SampleCount, TextureSubresLayers, TextureUsage, TextureFlags,\n} from './define';\nimport { Buffer } from './buffer';\nimport { CommandBuffer } from './command-buffer';\nimport { DescriptorSet } from './descriptor-set';\nimport { DescriptorSetLayout } from './descriptor-set-layout';\nimport { PipelineLayout } from './pipeline-layout';\nimport { Framebuffer } from './framebuffer';\nimport { InputAssembler } from './input-assembler';\nimport { PipelineState, PipelineStateInfo } from './pipeline-state';\nimport { Queue } from './queue';\nimport { RenderPass } from './render-pass';\nimport { Sampler } from './states/sampler';\nimport { Shader } from './shader';\nimport { Texture } from './texture';\nimport { GeneralBarrier } from './states/general-barrier';\nimport { TextureBarrier } from './states/texture-barrier';\nimport { BufferBarrier } from './states/buffer-barrier';\nimport { Swapchain } from './swapchain';\n\n/**\n * @en GFX Device.\n * @zh GFX 设备。\n */\nexport abstract class Device {\n    constructor () {}\n\n    /**\n     * @en Current rendering API.\n     * @zh 当前 GFX 使用的渲染 API。\n     */\n    get gfxAPI (): API {\n        return this._gfxAPI;\n    }\n\n    /**\n     * @en GFX default queue.\n     * @zh GFX 默认队列。\n     */\n    get queue (): Queue {\n        return this._queue as Queue;\n    }\n\n    /**\n     * @en GFX default command buffer.\n     * @zh GFX 默认命令缓冲。\n     */\n    get commandBuffer (): CommandBuffer {\n        return this._cmdBuff as CommandBuffer;\n    }\n\n    /**\n     * @en The current format of the swapchain being used.\n     * @zh 当前使用的swapchain的格式。\n     */\n    get swapchainFormat (): Format {\n        return this._swapchainFormat;\n    }\n\n    /**\n     * @en Renderer description.\n     * @zh 渲染器描述。\n     */\n    get renderer (): string {\n        return this._renderer;\n    }\n\n    /**\n     * @en Vendor description.\n     * @zh 厂商描述。\n     */\n    get vendor (): string {\n        return this._vendor;\n    }\n\n    /**\n     * @en Number of draw calls currently recorded.\n     * @zh 绘制调用次数。\n     */\n    get numDrawCalls (): number {\n        return this._numDrawCalls;\n    }\n\n    /**\n     * @en Number of instances currently recorded.\n     * @zh 绘制 Instance 数量。\n     */\n    get numInstances (): number {\n        return this._numInstances;\n    }\n\n    /**\n     * @en Number of triangles currently recorded.\n     * @zh 渲染三角形数量。\n     */\n    get numTris (): number {\n        return this._numTris;\n    }\n\n    /**\n     * @en Total memory size currently allocated.\n     * @zh 内存状态。\n     */\n    get memoryStatus (): MemoryStatus {\n        return this._memoryStatus;\n    }\n\n    /**\n     * @en Current device capabilities.\n     * @zh 当前设备能力数据。\n     */\n    get capabilities (): DeviceCaps {\n        return this._caps;\n    }\n\n    /**\n     * @en Current device binding mappings.\n     * @zh 当前设备的绑定槽位映射关系。\n     */\n    get bindingMappingInfo (): BindingMappingInfo {\n        return this._bindingMappingInfo;\n    }\n\n    /** @mangle */\n    protected _gfxAPI = API.UNKNOWN;\n    /** @mangle */\n    protected _renderer = '';\n    /** @mangle */\n    protected _vendor = '';\n    /** @mangle */\n    protected _features = new Array<boolean>(Feature.COUNT);\n    /** @mangle */\n    protected _formatFeatures = new Array<FormatFeature>(Format.COUNT);\n    /** @mangle */\n    protected _queue: Queue | null = null;\n    /** @mangle */\n    protected _cmdBuff: CommandBuffer | null = null;\n    /** @mangle */\n    protected _numDrawCalls = 0;\n    /** @mangle */\n    protected _numInstances = 0;\n    /** @mangle */\n    protected _numTris = 0;\n    /** @mangle */\n    protected _memoryStatus = new MemoryStatus();\n    /** @mangle */\n    protected _caps = new DeviceCaps();\n    /** @mangle */\n    protected _bindingMappingInfo: BindingMappingInfo = new BindingMappingInfo();\n    /** @mangle */\n    protected _samplers = new Map<number, Sampler>();\n    /** @mangle */\n    protected _generalBarrierss = new Map<number, GeneralBarrier>();\n    /** @mangle */\n    protected _textureBarriers = new Map<number, TextureBarrier>();\n    /** @mangle */\n    protected _bufferBarriers = new Map<number, BufferBarrier>();\n    /** @mangle */\n    protected _swapchainFormat = Format.RGBA8;\n\n    /** @mangle */\n    public static canvas: HTMLCanvasElement; // Hack for WebGL device initialization process\n\n    public abstract initialize (info: Readonly<DeviceInfo>): boolean | Promise<boolean>;\n\n    public abstract destroy (): void;\n\n    /**\n     * @en Acquire next swapchain image.\n     * @zh 获取下一个交换链缓冲。\n     */\n    public abstract acquire (swapchains: Readonly<Swapchain[]>): void;\n\n    /**\n     * @en Present current swapchain image.\n     * @zh 上屏当前交换链缓冲。\n     */\n    public abstract present (): void;\n\n    /**\n     * @en Flush the specified command buffers.\n     * @zh 实际录制指定的命令缓冲。\n     */\n    public abstract flushCommands (cmdBuffs: Readonly<CommandBuffer[]>): void;\n\n    /**\n     * @en Create command buffer.\n     * @zh 创建命令缓冲。\n     * @param info GFX command buffer description info.\n     */\n    public abstract createCommandBuffer (info: Readonly<CommandBufferInfo>): CommandBuffer;\n\n    /**\n     * @en Create swapchain.\n     * @zh 创建交换链。\n     * @param info GFX swapchain description info.\n     */\n    public abstract createSwapchain (info: Readonly<SwapchainInfo>): Swapchain;\n\n    /**\n     * @en Create buffer.\n     * @zh 创建缓冲。\n     * @param info GFX buffer description info.\n     */\n    public abstract createBuffer (info: Readonly<BufferInfo> | BufferViewInfo): Buffer;\n\n    /**\n     * @en Create texture.\n     * @zh 创建纹理。\n     * @param info GFX texture description info.\n     */\n    public abstract createTexture (info: Readonly<TextureInfo> | TextureViewInfo): Texture;\n\n    /**\n     * @en Create descriptor sets.\n     * @zh 创建描述符集组。\n     * @param info GFX descriptor sets description info.\n     */\n    public abstract createDescriptorSet (info: Readonly<DescriptorSetInfo>): DescriptorSet;\n\n    /**\n     * @en Create shader.\n     * @zh 创建着色器。\n     * @param info GFX shader description info.\n     */\n    public abstract createShader (info: Readonly<ShaderInfo>): Shader;\n\n    /**\n     * @en Create input assembler.\n     * @zh 创建纹理。\n     * @param info GFX input assembler description info.\n     */\n    public abstract createInputAssembler (info: Readonly<InputAssemblerInfo>): InputAssembler;\n\n    /**\n     * @en Create render pass.\n     * @zh 创建渲染过程。\n     * @param info GFX render pass description info.\n     */\n    public abstract createRenderPass (info: Readonly<RenderPassInfo>): RenderPass;\n\n    /**\n     * @en Create frame buffer.\n     * @zh 创建帧缓冲。\n     * @param info GFX frame buffer description info.\n     */\n    public abstract createFramebuffer (info: Readonly<FramebufferInfo>): Framebuffer;\n\n    /**\n     * @en Create descriptor set layout.\n     * @zh 创建描述符集布局。\n     * @param info GFX descriptor set layout description info.\n     */\n    public abstract createDescriptorSetLayout (info: Readonly<DescriptorSetLayoutInfo>): DescriptorSetLayout;\n\n    /**\n     * @en Create pipeline layout.\n     * @zh 创建管线布局。\n     * @param info GFX pipeline layout description info.\n     */\n    public abstract createPipelineLayout (info: Readonly<PipelineLayoutInfo>): PipelineLayout;\n\n    /**\n     * @en Create pipeline state.\n     * @zh 创建管线状态。\n     * @param info GFX pipeline state description info.\n     */\n    public abstract createPipelineState (info: Readonly<PipelineStateInfo>): PipelineState;\n\n    /**\n     * @en Create queue.\n     * @zh 创建队列。\n     * @param info GFX queue description info.\n     */\n    public abstract createQueue (info: Readonly<QueueInfo>): Queue;\n\n    /**\n     * @en Create sampler.\n     * @zh 创建采样器。\n     * @param info GFX sampler description info.\n     */\n    public abstract getSampler (info: Readonly<SamplerInfo>): Sampler;\n\n    /**\n     * @en Get swapchains.\n     * @zh 获取交换链列表。\n     */\n    public abstract getSwapchains (): Readonly<Swapchain[]>;\n\n    /**\n     * @en Create global barrier.\n     * @zh 创建全局内存屏障。\n     * @param info GFX global barrier description info.\n     */\n    public abstract getGeneralBarrier (info: Readonly<GeneralBarrierInfo>): GeneralBarrier;\n\n    /**\n     * @en Create texture barrier.\n     * @zh 创建贴图内存屏障。\n     * @param info GFX texture barrier description info.\n     */\n    public abstract getTextureBarrier (info: Readonly<TextureBarrierInfo>): TextureBarrier;\n\n    /**\n     * @en Create buffer barrier.\n     * @zh 创建buffer内存屏障。\n     * @param info GFX buffer barrier description info.\n     */\n    public abstract getBufferBarrier (info: Readonly<BufferBarrierInfo>): BufferBarrier;\n\n    /**\n     * @en Copy buffers to texture.\n     * @zh 拷贝缓冲到纹理。\n     * @param buffers The buffers to be copied.\n     * @param texture The texture to copy to.\n     * @param regions The region descriptions.\n     */\n    public abstract copyBuffersToTexture (buffers: Readonly<ArrayBufferView[]>, texture: Texture, regions: Readonly<BufferTextureCopy[]>): void;\n\n    /**\n     * @en Copy texture to buffers\n     * @zh 拷贝纹理到缓冲\n     * @param texture The texture to be copied.\n     * @param buffers The buffer to copy to.\n     * @param regions The region descriptions\n     */\n    public abstract copyTextureToBuffers (texture: Readonly<Texture>, buffers: ArrayBufferView[], regions: Readonly<BufferTextureCopy[]>): void;\n\n    /**\n     * @en Copy texture images to texture.\n     * @zh 拷贝图像到纹理。\n     * @param texImages The texture to be copied.\n     * @param texture The texture to copy to.\n     * @param regions The region descriptions.\n     */\n    public abstract copyTexImagesToTexture (texImages: Readonly<TexImageSource[]>, texture: Texture, regions: Readonly<BufferTextureCopy[]>): void;\n\n    /**\n     * @en Whether the device has specific feature.\n     * @zh 是否具备特性。\n     * @param feature The GFX feature to be queried.\n     */\n    public hasFeature (feature: Feature): boolean {\n        return this._features[feature];\n    }\n\n    /**\n     * @en The extent a specific format is supported by the backend.\n     * @zh 后端对特定格式的支持程度。\n     * @param format The GFX format to be queried.\n     */\n    public getFormatFeatures (format: Format): FormatFeature {\n        return this._formatFeatures[format];\n    }\n\n    /**\n     * @en Enable automatically barrier deduction GFX inside, no effect on web.\n     * @zh 是否开启自动GFX内部barrier推导，web无影响。\n     * @param format The GFX format to be queried.\n     */\n    public enableAutoBarrier (en: boolean): void {\n        // noop\n    }\n\n    /**\n     * @en Get maximum supported sample count.\n     * @zh 获取最大可支持的 Samples 参数\n     * @param format The GFX texture format.\n     * @param usage The GFX texture usage.\n     * @param flags The GFX texture create flags.\n     */\n    public getMaxSampleCount (format: Format, usage: TextureUsage, flags: TextureFlags): SampleCount {\n        return SampleCount.X1;\n    }\n}\n\n/** @mangle */\nexport class DefaultResource {\n    private _texture2D: Texture | null = null;\n    private _texture3D: Texture | null = null;\n    private _textureCube: Texture | null = null;\n    private _texture2DArray: Texture | null = null;\n\n    constructor (device: Device) {\n        const capabilities = device.capabilities;\n        const bufferSize = 64;\n        // create a new buffer and fill it with a white pixel\n        const buffer = new Uint8Array(bufferSize);\n        buffer.fill(255);\n        if (capabilities.maxTextureSize >= 2) {\n            this._texture2D = device.createTexture(new TextureInfo(\n                TextureType.TEX2D,\n                TextureUsageBit.STORAGE | TextureUsageBit.SAMPLED,\n                Format.RGBA8,\n                2,\n                2,\n                TextureFlagBit.NONE,\n            ));\n            const copyRegion = new BufferTextureCopy(0, 0, 0, new Offset(0, 0, 0), new Extent(2, 2, 1));\n            device.copyBuffersToTexture([buffer], this._texture2D, [copyRegion]);\n        }\n        if (capabilities.maxTextureSize >= 2) {\n            this._textureCube = device.createTexture(new TextureInfo(\n                TextureType.CUBE,\n                TextureUsageBit.STORAGE | TextureUsageBit.SAMPLED,\n                Format.RGBA8,\n                2,\n                2,\n                TextureFlagBit.NONE,\n                6,\n            ));\n            const copyRegion = new BufferTextureCopy(0, 0, 0, new Offset(0, 0, 0), new Extent(2, 2, 1));\n            device.copyBuffersToTexture([buffer], this._textureCube, [copyRegion]);\n            copyRegion.texSubres.baseArrayLayer = 1;\n            device.copyBuffersToTexture([buffer], this._textureCube, [copyRegion]);\n            copyRegion.texSubres.baseArrayLayer = 2;\n            device.copyBuffersToTexture([buffer], this._textureCube, [copyRegion]);\n            copyRegion.texSubres.baseArrayLayer = 3;\n            device.copyBuffersToTexture([buffer], this._textureCube, [copyRegion]);\n            copyRegion.texSubres.baseArrayLayer = 4;\n            device.copyBuffersToTexture([buffer], this._textureCube, [copyRegion]);\n            copyRegion.texSubres.baseArrayLayer = 5;\n            device.copyBuffersToTexture([buffer], this._textureCube, [copyRegion]);\n        }\n        if (capabilities.max3DTextureSize >= 2) {\n            this._texture3D = device.createTexture(new TextureInfo(\n                TextureType.TEX3D,\n                TextureUsageBit.STORAGE | TextureUsageBit.SAMPLED,\n                Format.RGBA8,\n                2,\n                2,\n                TextureFlagBit.NONE,\n                1,\n                1,\n                SampleCount.X1,\n                2,\n            ));\n            const copyRegion = new BufferTextureCopy(0, 0, 0, new Offset(0, 0, 0), new Extent(2, 2, 2), new TextureSubresLayers(0, 0, 1));\n            device.copyBuffersToTexture([buffer], this._texture3D, [copyRegion]);\n        }\n        if (capabilities.maxArrayTextureLayers >= 2) {\n            this._texture2DArray = device.createTexture(new TextureInfo(\n                TextureType.TEX2D_ARRAY,\n                TextureUsageBit.STORAGE | TextureUsageBit.SAMPLED,\n                Format.RGBA8,\n                2,\n                2,\n                TextureFlagBit.NONE,\n                2,\n            ));\n            const copyRegion = new BufferTextureCopy(0, 0, 0, new Offset(0, 0, 0), new Extent(2, 2, 1), new TextureSubresLayers(0, 0, 1));\n            device.copyBuffersToTexture([buffer], this._texture2DArray, [copyRegion]);\n            copyRegion.texSubres.baseArrayLayer = 1;\n            device.copyBuffersToTexture([buffer], this._texture2DArray, [copyRegion]);\n        }\n    }\n\n    public getTexture (type: TextureType): Texture | null {\n        switch (type) {\n        case TextureType.TEX2D: return this._texture2D;\n        case TextureType.TEX3D: return this._texture3D;\n        case TextureType.CUBE: return this._textureCube;\n        case TextureType.TEX2D_ARRAY: return this._texture2DArray;\n        default: return null;\n        }\n    }\n}",
+    "cocos/gfx/webgpu/webgpu-device.ts": "/*\n Copyright (c) 2024 Xiamen Yaji Software Co., Ltd.\n\n https://www.cocos.com/\n\n Permission is hereby granted, free of charge, to any person obtaining a copy\n of this software and associated documentation files (the \"Software\"), to deal\n in the Software without restriction, including without limitation the rights to\n use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies\n of the Software, and to permit persons to whom the Software is furnished to do so,\n subject to the following conditions:\n\n The above copyright notice and this permission notice shall be included in\n all copies or substantial portions of the Software.\n\n THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n THE SOFTWARE.\n*/\n\nimport { DescriptorSet } from '../base/descriptor-set';\nimport { Buffer } from '../base/buffer';\nimport { CommandBuffer } from '../base/command-buffer';\nimport { Device } from '../base/device';\nimport { Framebuffer } from '../base/framebuffer';\nimport { InputAssembler } from '../base/input-assembler';\nimport { PipelineState, PipelineStateInfo } from '../base/pipeline-state';\nimport { Queue } from '../base/queue';\nimport { RenderPass } from '../base/render-pass';\nimport { Sampler } from '../base/states/sampler';\nimport { Shader } from '../base/shader';\nimport { PipelineLayout } from '../base/pipeline-layout';\nimport { DescriptorSetLayout } from '../base/descriptor-set-layout';\nimport { Texture } from '../base/texture';\nimport { WebGPUDescriptorSet } from './webgpu-descriptor-set';\nimport { WebGPUBuffer } from './webgpu-buffer';\nimport { WebGPUCommandBuffer } from './webgpu-command-buffer';\nimport { WebGPUFramebuffer } from './webgpu-framebuffer';\nimport { WebGPUInputAssembler } from './webgpu-input-assembler';\nimport { WebGPUDescriptorSetLayout } from './webgpu-descriptor-set-layout';\nimport { WebGPUPipelineLayout } from './webgpu-pipeline-layout';\nimport { WebGPUPipelineState } from './webgpu-pipeline-state';\nimport { WebGPUQueue } from './webgpu-queue';\nimport { WebGPURenderPass } from './webgpu-render-pass';\nimport { WebGPUSampler } from './webgpu-sampler';\nimport { WebGPUShader } from './webgpu-shader';\nimport { WebGPUStateCache } from './webgpu-state-cache';\nimport { WebGPUTexture } from './webgpu-texture';\nimport { DefaultResources, hashCombineNum, hashCombineStr, webGPU, WebGPUDeviceManager } from './define';\nimport {\n    Filter, Format,\n    QueueType, Feature, BufferTextureCopy, Rect, DescriptorSetInfo,\n    BufferInfo, BufferViewInfo, CommandBufferInfo, DeviceInfo,\n    FramebufferInfo, InputAssemblerInfo, QueueInfo, RenderPassInfo, SamplerInfo,\n    ShaderInfo, PipelineLayoutInfo, DescriptorSetLayoutInfo, TextureInfo, TextureViewInfo, GeneralBarrierInfo, TextureBarrierInfo,\n    SwapchainInfo,\n    BufferBarrierInfo,\n    API,\n    FormatFeatureBit,\n    FormatFeature,\n    TextureType,\n    TextureUsageBit,\n    TextureFlagBit,\n    SampleCount,\n    BufferUsageBit,\n    MemoryUsageBit,\n    BufferFlagBit,\n    DescriptorSetLayoutBinding,\n    DescriptorType,\n    ShaderStageFlagBit,\n} from '../base/define';\nimport { WebGPUCommandAllocator } from './webgpu-command-allocator';\nimport { GeneralBarrier } from '../base/states/general-barrier';\nimport { TextureBarrier } from '../base/states/texture-barrier';\nimport { BufferBarrier } from '../base/states/buffer-barrier';\nimport { Swapchain } from '../base/swapchain';\nimport { WebGPUSwapchain } from './webgpu-swapchain';\n\nimport { IWebGPUBindingMapping, IWebGPUGPUBuffer as IWebGPUBuffer, IWebGPUGPUSampler as IWebGPUSampler, IWebGPUTexture } from './webgpu-gpu-objects';\nimport { debug, warn } from '../../core';\nimport { WebGPUCmdFuncCopyBuffersToTexture, WebGPUCmdFuncCopyTexImagesToTexture,\n    WebGPUCmdFuncCopyTextureToBuffer, WGPUFormatToGFXFormat } from './webgpu-commands';\nimport { waitForWebGPUWasmInstantiation } from './instantiated';\n\nlet loadWebGPUPromise: Promise<void> | undefined;\n\nexport function loadWebGPUWasmModule (): Promise<void> {\n    if (loadWebGPUPromise) return loadWebGPUPromise;\n    loadWebGPUPromise = Promise.resolve()\n        .then(() => waitForWebGPUWasmInstantiation());\n    return loadWebGPUPromise;\n}\n\nexport class WebGPUDevice extends Device {\n    public createSwapchain (info: Readonly<SwapchainInfo>): Swapchain {\n        const swapchain = new WebGPUSwapchain();\n        this._swapchain = swapchain;\n        swapchain.initialize(info);\n        return swapchain;\n    }\n    public getSampler (info: Readonly<SamplerInfo>): Sampler {\n        const hash = Sampler.computeHash(info);\n        if (!this._samplers.has(hash)) {\n            this._samplers.set(hash, new WebGPUSampler(info, hash));\n        }\n        return this._samplers.get(hash)!;\n    }\n    public getSwapchains (): readonly Swapchain[] {\n        return [this._swapchain as Swapchain];\n    }\n    public getGeneralBarrier (info: Readonly<GeneralBarrierInfo>): GeneralBarrier {\n        const hash = GeneralBarrier.computeHash(info);\n        if (!this._generalBarrierss.has(hash)) {\n            this._generalBarrierss.set(hash, new GeneralBarrier(info, hash));\n        }\n        return this._generalBarrierss.get(hash)!;\n    }\n    public getTextureBarrier (info: Readonly<TextureBarrierInfo>): TextureBarrier {\n        const hash = TextureBarrier.computeHash(info);\n        if (!this._textureBarriers.has(hash)) {\n            this._textureBarriers.set(hash, new TextureBarrier(info, hash));\n        }\n        return this._textureBarriers.get(hash)!;\n    }\n    public getBufferBarrier (info: Readonly<BufferBarrierInfo>): BufferBarrier {\n        const hash = BufferBarrier.computeHash(info);\n        if (!this._bufferBarriers.has(hash)) {\n            this._bufferBarriers.set(hash, new BufferBarrier(info, hash));\n        }\n        return this._bufferBarriers.get(hash)!;\n    }\n    public async copyTextureToBuffers (texture: Readonly<Texture>, buffers: ArrayBufferView[], regions: readonly BufferTextureCopy[]): Promise<void> {\n        await WebGPUCmdFuncCopyTextureToBuffer(this, (texture as WebGPUTexture).gpuTexture, buffers, regions);\n    }\n    public flushCommands (cmdBuffs: CommandBuffer[]): void {\n        // noop\n    }\n\n    get isPremultipliedAlpha (): boolean {\n        if (!this._gpuConfig) {\n            return false;\n        }\n        return this._gpuConfig.alphaMode === 'premultiplied';\n    }\n\n    get multiDrawIndirectSupport (): boolean {\n        return this._multiDrawIndirect;\n    }\n\n    get bindingMappings (): IWebGPUBindingMapping {\n        return this._bindingMappings!;\n    }\n\n    get context (): GPUCanvasContext {\n        return this._context!;\n    }\n\n    public stateCache: WebGPUStateCache = new WebGPUStateCache();\n    public cmdAllocator: WebGPUCommandAllocator = new WebGPUCommandAllocator();\n    public nullTex2D: WebGPUTexture | null = null;\n    public nullTexCube: WebGPUTexture | null = null;\n    public defaultResource: DefaultResources = new DefaultResources();\n\n    private _adapter: GPUAdapter | null | undefined = null;\n    private _device: GPUDevice | null | undefined = null;\n    private _context: GPUCanvasContext | null = null;\n    private _swapchain: WebGPUSwapchain | null = null;\n    private _glslang;\n    private _twgsl;\n    private _bindingMappings: IWebGPUBindingMapping | null = null;\n    private _multiDrawIndirect = false;\n    private _gpuConfig: GPUCanvasConfiguration | null = null;\n    protected _textureExclusive = new Array<boolean>(Format.COUNT);\n\n    public async initialize (info: Readonly<DeviceInfo>): Promise<boolean> {\n        WebGPUDeviceManager.setInstance(this);\n        return this.initDevice(info);\n    }\n\n    set gpuConfig (config: GPUCanvasConfiguration) {\n        this._gpuConfig = config;\n    }\n\n    get gpuConfig (): GPUCanvasConfiguration {\n        return this._gpuConfig!;\n    }\n\n    protected initFormatFeatures (exts: GPUSupportedFeatures): void {\n        this._formatFeatures.fill(FormatFeatureBit.NONE);\n\n        this._textureExclusive.fill(true);\n\n        let tempFeature: FormatFeature = FormatFeatureBit.RENDER_TARGET | FormatFeatureBit.SAMPLED_TEXTURE\n            | FormatFeatureBit.STORAGE_TEXTURE | FormatFeatureBit.LINEAR_FILTER | FormatFeatureBit.VERTEX_ATTRIBUTE;\n\n        this._formatFeatures[Format.R8] = tempFeature;",
+    "cocos/gfx/base/define.ts": "/*\n Copyright (c) 2020-2023 Xiamen Yaji Software Co., Ltd.\n\n https://www.cocos.com/\n\n Permission is hereby granted, free of charge, to any person obtaining a copy\n of this software and associated documentation files (the \"Software\"), to deal\n in the Software without restriction, including without limitation the rights to\n use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies\n of the Software, and to permit persons to whom the Software is furnished to do so,\n subject to the following conditions:\n\n The above copyright notice and this permission notice shall be included in\n all copies or substantial portions of the Software.\n\n THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n THE SOFTWARE.\n*/\n/* eslint-disable no-empty-function */\n\nimport { Queue } from './queue';\nimport { Buffer } from './buffer';\nimport { Texture } from './texture';\nimport { Swapchain } from './swapchain';\nimport { RenderPass } from './render-pass';\nimport { DescriptorSetLayout } from './descriptor-set-layout';\n\nimport { Sampler } from './states/sampler';\nimport { GeneralBarrier } from './states/general-barrier';\nimport { GCObject } from '../../core/data/gc-object';\n\ninterface ICopyable { copy (info: ICopyable): ICopyable; }\n\nconst deepCopy = <T extends ICopyable> (target: T[], source: T[], Ctor: Constructor<T>): void => {\n    for (let i = 0; i < source.length; ++i) {\n        if (target.length <= i) target.push(new Ctor());\n        target[i].copy(source[i]);\n    }\n    target.length = source.length;\n};\n\n/**\n  * ========================= !DO NOT CHANGE THE FOLLOWING SECTION MANUALLY! =========================\n  * The following section is auto-generated from native/cocos/renderer/core/gfx/GFXDef-common.h\n  * by the script native/tools/gfx-define-generator/generate.js.\n  * Changes to these public interfaces should be made there first and synced back.\n  * ========================= !DO NOT CHANGE THE FOLLOWING SECTION MANUALLY! =========================\n  */\n\n/**\n * @en Graphics object type\n * @zh 图形API对象的类型\n */\nexport enum ObjectType {\n    UNKNOWN,\n    SWAPCHAIN,\n    BUFFER,\n    TEXTURE,\n    RENDER_PASS,\n    FRAMEBUFFER,\n    SAMPLER,\n    SHADER,\n    DESCRIPTOR_SET_LAYOUT,\n    PIPELINE_LAYOUT,\n    PIPELINE_STATE,\n    DESCRIPTOR_SET,\n    INPUT_ASSEMBLER,\n    COMMAND_BUFFER,\n    QUEUE,\n    QUERY_POOL,\n    GLOBAL_BARRIER,\n    TEXTURE_BARRIER,\n    BUFFER_BARRIER,\n    COUNT,\n}\n\nexport enum Status {\n    UNREADY,\n    FAILED,\n    SUCCESS,\n}\n\nexport enum API {\n    UNKNOWN,\n    GLES2,\n    GLES3,\n    METAL,\n    VULKAN,\n    NVN,\n    WEBGL,\n    WEBGL2,\n    WEBGPU,\n}\n\nexport enum SurfaceTransform {"
   }
 }
