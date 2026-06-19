@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Engine Learning Viewer</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-rust.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-glsl.min.js"></script>
+<style>
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans SC', sans-serif; font-size: 15px; color: #1e1e1e; background: #1e1e1e; }
+
+/* ===== Layout ===== */
+#app { display: flex; flex-direction: column; height: 100vh; }
+#topbar { display: flex; align-items: center; height: 48px; background: #252526; border-bottom: 1px solid #3c3c3c; padding: 0 16px; flex-shrink: 0; gap: 12px; z-index: 100; }
+#topbar .title { font-size: 14px; font-weight: 600; color: #cccccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+#topbar .spacer { flex: 1; }
+#topbar .progress-bar { width: 120px; height: 6px; background: #3c3c3c; border-radius: 3px; overflow: hidden; }
+#topbar .progress-fill { height: 100%; background: #4ec9b0; border-radius: 3px; transition: width 0.3s ease; }
+#topbar .progress-text { font-size: 12px; color: #888; min-width: 36px; }
+#search-box { position: relative; }
+#search-input { width: 200px; height: 28px; background: #3c3c3c; border: 1px solid #555; border-radius: 4px; color: #ccc; padding: 0 8px 0 28px; font-size: 13px; outline: none; transition: border-color 0.2s, width 0.2s; }
+#search-input:focus { border-color: #007acc; width: 280px; }
+#search-input::placeholder { color: #777; }
+#search-icon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: #888; font-size: 13px; pointer-events: none; }
+#search-results { position: absolute; top: 32px; right: 0; width: 400px; max-height: 400px; background: #252526; border: 1px solid #3c3c3c; border-radius: 6px; overflow-y: auto; display: none; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+#search-results.active { display: block; }
+.search-result-item { padding: 10px 14px; border-bottom: 1px solid #333; cursor: pointer; transition: background 0.15s; }
+.search-result-item:hover { background: #2a2d2e; }
+.search-result-item .sr-context { font-size: 12px; color: #888; margin-bottom: 4px; }
+.search-result-item .sr-text { font-size: 13px; color: #ccc; }
+.search-result-item .sr-text mark { background: #525200; color: #e8e8a0; border-radius: 2px; padding: 0 2px; }
+
+/* ===== Main Area ===== */
+#main { display: flex; flex: 1; overflow: hidden; }
+
+/* ===== Sidebar ===== */
+#sidebar { width: 260px; min-width: 0; background: #252526; border-right: 1px solid #3c3c3c; display: flex; flex-direction: column; overflow: hidden; transition: width 0.2s ease; }
+#sidebar.collapsed { width: 0; min-width: 0; border-right: none; }
+#sidebar-toggle { position: absolute; left: 260px; top: 48px; width: 20px; height: 40px; background: #2d2d2d; border: 1px solid #3c3c3c; border-left: none; border-radius: 0 4px 4px 0; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #888; font-size: 11px; z-index: 50; transition: left 0.2s ease; }
+#sidebar-toggle.collapsed { left: 0; }
+#sidebar-toggle:hover { background: #383838; color: #ccc; }
+#sidebar-header { padding: 12px 16px; font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #333; }
+#chapter-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+.chapter-item { padding: 8px 16px; cursor: pointer; transition: background 0.15s; display: flex; align-items: flex-start; gap: 8px; }
+.chapter-item:hover { background: #2a2d2e; }
+.chapter-item.active { background: #37373d; }
+.chapter-check { width: 16px; height: 16px; border: 1.5px solid #555; border-radius: 3px; flex-shrink: 0; margin-top: 2px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s; }
+.chapter-check.read { background: #4ec9b0; border-color: #4ec9b0; }
+.chapter-check.read::after { content: ''; width: 6px; height: 3px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translateY(-1px); }
+.chapter-label { font-size: 13px; color: #ccc; line-height: 1.4; }
+.chapter-label .ch-id { color: #888; font-size: 11px; }
+
+/* ===== Content Area ===== */
+#content-area { flex: 1; display: flex; overflow: hidden; position: relative; }
+
+/* ===== Docs Panel ===== */
+#docs-panel { width: 40%; min-width: 300px; overflow-y: auto; background: #f8f8f8; padding: 32px; }
+#docs-panel::-webkit-scrollbar { width: 8px; }
+#docs-panel::-webkit-scrollbar-track { background: transparent; }
+#docs-panel::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+
+/* ===== Divider ===== */
+#divider { width: 4px; background: #3c3c3c; cursor: col-resize; flex-shrink: 0; position: relative; z-index: 10; transition: background 0.15s; }
+#divider:hover, #divider.active { background: #007acc; }
+#divider::after { content: ''; position: absolute; left: -3px; right: -3px; top: 0; bottom: 0; }
+
+/* ===== Code Panel ===== */
+#code-panel { flex: 1; min-width: 300px; display: flex; flex-direction: column; background: #1e1e1e; overflow: hidden; }
+#code-header { display: flex; align-items: center; height: 36px; background: #252526; border-bottom: 1px solid #333; padding: 0 12px; gap: 8px; flex-shrink: 0; }
+#code-breadcrumb { font-size: 12px; color: #888; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#code-breadcrumb .sep { margin: 0 4px; color: #555; }
+#code-breadcrumb .segment { color: #9cdcfe; }
+#code-breadcrumb .segment:last-child { color: #ccc; font-weight: 500; }
+#copy-btn { background: #333; border: 1px solid #555; color: #aaa; padding: 3px 10px; border-radius: 3px; font-size: 11px; cursor: pointer; transition: all 0.15s; }
+#copy-btn:hover { background: #444; color: #ccc; }
+#code-content { flex: 1; overflow: auto; padding: 0; }
+#code-content::-webkit-scrollbar { width: 10px; height: 10px; }
+#code-content::-webkit-scrollbar-track { background: transparent; }
+#code-content::-webkit-scrollbar-thumb { background: #424242; border-radius: 5px; }
+.code-table { border-collapse: collapse; width: 100%; font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace; font-size: 13px; line-height: 1.6; }
+.code-table td { padding: 0; vertical-align: top; white-space: pre; }
+.line-num { width: 60px; min-width: 60px; text-align: right; padding: 0 12px 0 0; color: #555; user-select: none; border-right: 1px solid #333; font-size: 12px; }
+.line-code { padding: 0 0 0 12px; }
+.code-line { transition: background 0.3s ease; }
+.code-line.highlighted { background: rgba(255, 230, 0, 0.12); }
+.code-line.highlight-flash { animation: lineFlash 0.8s ease-out; }
+@keyframes lineFlash {
+  0% { background: rgba(255, 230, 0, 0.35); }
+  100% { background: rgba(255, 230, 0, 0.12); }
+}
+.code-placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #555; font-size: 14px; flex-direction: column; gap: 8px; }
+.code-placeholder .hint { font-size: 12px; color: #444; }
+
+/* ===== Docs Content Styling ===== */
+.doc-section { margin-bottom: 24px; position: relative; padding-left: 24px; }
+.doc-section::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 2px; background: transparent; transition: background 0.2s; }
+.doc-section.focused::before { background: #007acc; }
+.doc-h2 { font-size: 22px; font-weight: 700; color: #1a1a2e; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #e0e0e0; }
+.doc-h3 { font-size: 18px; font-weight: 600; color: #2a2a3e; margin-bottom: 8px; }
+.doc-paragraph { font-size: 15px; line-height: 1.8; color: #333; margin-bottom: 12px; }
+.doc-paragraph strong { color: #1a1a2e; font-weight: 600; }
+.doc-note { background: #fff8e1; border-left: 4px solid #ffb300; padding: 12px 16px; margin-bottom: 16px; border-radius: 0 6px 6px 0; font-size: 14px; line-height: 1.6; color: #5d4037; }
+.doc-note::before { content: '? '; font-weight: 700; color: #f57f17; }
+.doc-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
+.doc-table th { background: #e8eaf6; color: #283593; font-weight: 600; padding: 8px 12px; text-align: left; border: 1px solid #c5cae9; }
+.doc-table td { padding: 8px 12px; border: 1px solid #e0e0e0; color: #333; }
+.doc-table tr:nth-child(even) td { background: #fafafa; }
+.doc-list { margin-bottom: 16px; padding-left: 20px; }
+.doc-list li { font-size: 14px; line-height: 1.7; color: #333; margin-bottom: 6px; }
+.doc-code-block { background: #1e1e1e; border-radius: 6px; padding: 14px 16px; margin-bottom: 16px; overflow-x: auto; font-family: 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace; font-size: 13px; line-height: 1.6; color: #d4d4d4; }
+.doc-code-block .code-lang { font-size: 11px; color: #666; margin-bottom: 6px; display: block; }
+.code-ref-btn { display: inline-flex; align-items: center; gap: 6px; background: #e3f2fd; border: 1px solid #90caf9; color: #1565c0; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-family: inherit; margin-bottom: 8px; transition: all 0.15s; }
+.code-ref-btn:hover { background: #bbdefb; border-color: #42a5f5; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(25, 118, 210, 0.15); }
+.code-ref-btn .ref-icon { font-size: 14px; }
+.code-ref-btn .ref-file { font-weight: 500; }
+.code-ref-btn .ref-lines { color: #64b5f6; font-size: 12px; }
+.code-ref-caption { font-size: 12px; color: #777; margin-bottom: 16px; margin-top: -4px; font-style: italic; }
+.section-checkbox { position: absolute; right: 0; top: 0; }
+
+/* ===== Scrollbar for sidebar ===== */
+#chapter-list::-webkit-scrollbar { width: 6px; }
+#chapter-list::-webkit-scrollbar-track { background: transparent; }
+#chapter-list::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
+/* ===== Responsive ===== */
+@media (max-width: 1100px) {
+  #docs-panel { padding: 20px; }
+  #sidebar { width: 220px; }
+}
+
+/* ===== Loading ===== */
+#loading { display: flex; align-items: center; justify-content: center; height: 100%; color: #888; font-size: 16px; }
+#loading .spinner { width: 24px; height: 24px; border: 3px solid #333; border-top-color: #007acc; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== Empty state for code panel ===== */
+.code-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #555; font-size: 14px; flex-direction: column; gap: 8px; }
+.code-empty .icon { font-size: 32px; opacity: 0.3; }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Top Bar -->
+  <div id="topbar">
+    <button id="sidebar-toggle-btn" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer;padding:4px 8px;" title="Toggle sidebar (Ctrl+B)">&#9776;</button>
+    <div class="title" id="lesson-title">Loading...</div>
+    <div class="spacer"></div>
+    <div id="search-box">
+      <span id="search-icon">&#128269;</span>
+      <input type="text" id="search-input" placeholder="Search lessons... (Ctrl+F)">
+      <div id="search-results"></div>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <span class="progress-text" id="progress-text">0%</span>
+  </div>
+
+  <!-- Main Area -->
+  <div id="main">
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div id="sidebar-header">Lesson Navigation</div>
+      <div id="chapter-list"></div>
+    </div>
+    <div id="sidebar-toggle" title="Toggle sidebar">&#9664;</div>
+
+    <!-- Content Area -->
+    <div id="content-area">
+      <div id="docs-panel">
+        <div id="loading"><div class="spinner"></div>Loading lesson data...</div>
+      </div>
+      <div id="divider"></div>
+      <div id="code-panel">
+        <div id="code-header">
+          <div id="code-breadcrumb"></div>
+          <button id="copy-btn" title="Copy code">Copy</button>
+        </div>
+        <div id="code-content">
+          <div class="code-empty">
+            <div class="icon">&#60;/&#62;</div>
+            Click a code reference in the docs to view source
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+'use strict';
+
+// ===== State =====
+let lessonData = null;
+let currentSectionIndex = -1;
+let currentFile = null;
+let currentHighlights = [];
+let readSections = new Set();
+let sidebarCollapsed = false;
+
+// ===== DOM refs =====
+const docsPanel = document.getElementById('docs-panel');
+const codeContent = document.getElementById('code-content');
+const codeBreadcrumb = document.getElementById('code-breadcrumb');
+const chapterList = document.getElementById('chapter-list');
+const lessonTitle = document.getElementById('lesson-title');
+const progressFill = document.getElementById('progress-fill');
+const progressText = document.getElementById('progress-text');
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+const sidebar = document.getElementById('sidebar');
+const sidebarToggle = document.getElementById('sidebar-toggle');
+const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+const divider = document.getElementById('divider');
+const copyBtn = document.getElementById('copy-btn');
+
+// ===== Load Data =====
+fetch('lessons.json')
+  .then(r => r.json())
+  .then(data => {
+    lessonData = data;
+    loadProgress();
+    renderSidebar();
+    renderDocs();
+    updateProgress();
+    lessonTitle.textContent = data.title;
+  })
+  .catch(err => {
+    docsPanel.innerHTML = '<div style="padding:40px;color:#c00;">Failed to load lessons.json: ' + err.message + '</div>';
+  });
+
+// ===== Progress (localStorage) =====
+function loadProgress() {
+  try {
+    const saved = localStorage.getItem('gel-progress-' + lessonData.title);
+    if (saved) readSections = new Set(JSON.parse(saved));
+  } catch(e) {}
+}
+
+function saveProgress() {
+  try {
+    localStorage.setItem('gel-progress-' + lessonData.title, JSON.stringify([...readSections]));
+  } catch(e) {}
+}
+
+function updateProgress() {
+  const total = lessonData.chapters.reduce((s, c) => s + c.sections.length, 0);
+  const read = readSections.size;
+  const pct = total > 0 ? Math.round(read / total * 100) : 0;
+  progressFill.style.width = pct + '%';
+  progressText.textContent = pct + '%';
+}
+
+function sectionKey(chIdx, sIdx) {
+  return chIdx + ':' + sIdx;
+}
+
+// ===== Sidebar =====
+function renderSidebar() {
+  chapterList.innerHTML = '';
+  lessonData.chapters.forEach((ch, ci) => {
+    const chDiv = document.createElement('div');
+    chDiv.className = 'chapter-item';
+    chDiv.dataset.chapter = ci;
+
+    const check = document.createElement('div');
+    check.className = 'chapter-check';
+    const allRead = ch.sections.every((_, si) => readSections.has(sectionKey(ci, si)));
+    if (allRead) check.classList.add('read');
+    check.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const allR = ch.sections.every((_, si) => readSections.has(sectionKey(ci, si)));
+      ch.sections.forEach((_, si) => {
+        const key = sectionKey(ci, si);
+        if (allR) readSections.delete(key); else readSections.add(key);
+      });
+      saveProgress();
+      updateProgress();
+      renderSidebar();
+      renderDocs();
+    });
+
+    const label = document.createElement('div');
+    label.className = 'chapter-label';
+    label.innerHTML = '<span class="ch-id">' + escapeHtml(ch.id) + '</span><br>' + escapeHtml(ch.title);
+
+    chDiv.appendChild(check);
+    chDiv.appendChild(label);
+    chDiv.addEventListener('click', () => {
+      const el = document.querySelector('[data-chapter="' + ci + '"][data-section="0"]');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    chapterList.appendChild(chDiv);
+  });
+}
+
+// ===== Docs Rendering =====
+function renderDocs() {
+  let html = '';
+  lessonData.chapters.forEach((ch, ci) => {
+    ch.sections.forEach((sec, si) => {
+      const key = sectionKey(ci, si);
+      const isRead = readSections.has(key);
+      html += '<div class="doc-section' + (currentSectionIndex === si ? ' focused' : '') + '" data-chapter="' + ci + '" data-section="' + si + '">';
+      html += '<div class="section-checkbox"><input type="checkbox" ' + (isRead ? 'checked' : '') + ' data-key="' + key + '" title="Mark as read"></div>';
+      html += renderSection(sec, ci, si);
+      html += '</div>';
+    });
+  });
+  docsPanel.innerHTML = html;
+
+  // Bind checkbox events
+  docsPanel.querySelectorAll('.section-checkbox input').forEach(cb => {
+    cb.addEventListener('change', function() {
+      const k = this.dataset.key;
+      if (this.checked) readSections.add(k); else readSections.delete(k);
+      saveProgress();
+      updateProgress();
+      renderSidebar();
+    });
+  });
+
+  // Bind code-ref buttons
+  docsPanel.querySelectorAll('.code-ref-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const file = this.dataset.file;
+      const start = parseInt(this.dataset.start);
+      const end = parseInt(this.dataset.end);
+      const highlights = this.dataset.highlights;
+      const hlArr = highlights ? highlights.split(',').map(Number) : [];
+      loadCodeFile(file, start, end, hlArr);
+    });
+  });
+
+  // Intersection observer for auto-focus
+  setupIntersectionObserver();
+}
+
+function renderSection(sec, ci, si) {
+  switch (sec.type) {
+    case 'heading':
+      const tag = sec.level === 2 ? 'h2' : 'h3';
+      const cls = sec.level === 2 ? 'doc-h2' : 'doc-h3';
+      return '<' + tag + ' class="' + cls + '">' + escapeHtml(sec.text) + '</' + tag + '>';
+
+    case 'paragraph':
+      return '<p class="doc-paragraph">' + formatInline(sec.text) + '</p>';
+
+    case 'note':
+      return '<div class="doc-note">' + formatInline(sec.text) + '</div>';
+
+    case 'table':
+      let t = '<table class="doc-table"><thead><tr>';
+      sec.headers.forEach(h => { t += '<th>' + escapeHtml(h) + '</th>'; });
+      t += '</tr></thead><tbody>';
+      sec.rows.forEach(row => {
+        t += '<tr>';
+        row.forEach(cell => { t += '<td>' + formatInline(cell) + '</td>'; });
+        t += '</tr>';
+      });
+      t += '</tbody></table>';
+      return t;
+
+    case 'list':
+      let l = '<ul class="doc-list">';
+      sec.items.forEach(item => { l += '<li>' + formatInline(item) + '</li>'; });
+      l += '</ul>';
+      return l;
+
+    case 'code-block':
+      let cb = '<div class="doc-code-block">';
+      if (sec.language) cb += '<span class="code-lang">' + escapeHtml(sec.language) + '</span>';
+      const highlighted = Prism.highlight(sec.code, Prism.languages[sec.language] || Prism.languages.javascript, sec.language);
+      cb += '<code>' + highlighted + '</code>';
+      cb += '</div>';
+      return cb;
+
+    case 'code-reference':
+      let cr = '<button class="code-ref-btn" data-file="' + escapeAttr(sec.file) + '" data-start="' + sec.startLine + '" data-end="' + sec.endLine + '" data-highlights="' + (sec.highlights || []).join(',') + '">';
+      cr += '<span class="ref-icon">&#128196;</span>';
+      cr += '<span class="ref-file">' + escapeHtml(basename(sec.file)) + '</span>';
+      cr += '<span class="ref-lines">L' + sec.startLine + '-' + sec.endLine + '</span>';
+      cr += '</button>';
+      if (sec.caption) cr += '<div class="code-ref-caption">' + escapeHtml(sec.caption) + '</div>';
+      return cr;
+
+    default:
+      return '<p class="doc-paragraph">' + escapeHtml(JSON.stringify(sec)) + '</p>';
+  }
+}
+
+function formatInline(text) {
+  // Bold: **text**
+  let s = escapeHtml(text);
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Inline code: `code`
+  s = s.replace(/`([^`]+)`/g, '<code style="background:#eee;padding:1px 4px;border-radius:3px;font-size:13px;font-family:monospace;">$1</code>');
+  return s;
+}
+
+function basename(path) {
+  return path.split('/').pop();
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function escapeAttr(s) {
+  return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ===== Intersection Observer for section focus =====
+function setupIntersectionObserver() {
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        docsPanel.querySelectorAll('.doc-section.focused').forEach(el => el.classList.remove('focused'));
+        entry.target.classList.add('focused');
+        currentSectionIndex = parseInt(entry.target.dataset.section);
+      }
+    });
+  }, { root: docsPanel, threshold: 0.3 });
+
+  docsPanel.querySelectorAll('.doc-section').forEach(el => observer.observe(el));
+}
+
+// ===== Code Panel =====
+function loadCodeFile(file, startLine, endLine, highlights) {
+  if (!lessonData.files || !lessonData.files[file]) {
+    codeContent.innerHTML = '<div class="code-empty"><div class="icon">&#128196;</div>File not found: ' + escapeHtml(file) + '</div>';
+    return;
+  }
+
+  currentFile = file;
+  currentHighlights = highlights || [];
+
+  // Breadcrumb
+  const parts = file.split('/');
+  codeBreadcrumb.innerHTML = parts.map((p, i) =>
+    '<span class="segment">' + escapeHtml(p) + '</span>' + (i < parts.length - 1 ? '<span class="sep">/</span>' : '')
+  ).join('');
+
+  // Code
+  const content = lessonData.files[file];
+  const lines = content.split('\n');
+  const lang = detectLanguage(file);
+
+  let tableHtml = '<table class="code-table"><tbody>';
+  lines.forEach((line, i) => {
+    const lineNum = i + 1;
+    const isInHighlight = currentHighlights.includes(lineNum);
+    const isInRange = lineNum >= startLine && lineNum <= endLine;
+    const cls = isInHighlight ? 'code-line highlighted' : 'code-line';
+    const codeHtml = Prism.highlight(line || ' ', Prism.languages[lang] || Prism.languages.javascript, lang);
+    tableHtml += '<tr class="' + cls + '" data-line="' + lineNum + '">';
+    tableHtml += '<td class="line-num">' + lineNum + '</td>';
+    tableHtml += '<td class="line-code">' + codeHtml + '</td>';
+    tableHtml += '</tr>';
+  });
+  tableHtml += '</tbody></table>';
+
+  codeContent.innerHTML = tableHtml;
+
+  // Scroll to range and flash
+  requestAnimationFrame(() => {
+    const targetLine = codeContent.querySelector('tr[data-line="' + startLine + '"]');
+    if (targetLine) {
+      targetLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Flash animation
+      setTimeout(() => {
+        currentHighlights.forEach(ln => {
+          const el = codeContent.querySelector('tr[data-line="' + ln + '"]');
+          if (el) {
+            el.classList.add('highlight-flash');
+            setTimeout(() => el.classList.remove('highlight-flash'), 800);
+          }
+        });
+      }, 300);
+    }
+  });
+}
+
+function detectLanguage(file) {
+  if (file.endsWith('.ts') || file.endsWith('.tsx')) return 'typescript';
+  if (file.endsWith('.js') || file.endsWith('.jsx')) return 'javascript';
+  if (file.endsWith('.rs')) return 'rust';
+  if (file.endsWith('.glsl') || file.endsWith('.vert') || file.endsWith('.frag')) return 'glsl';
+  return 'typescript';
+}
+
+// ===== Copy Button =====
+copyBtn.addEventListener('click', () => {
+  if (!currentFile || !lessonData.files[currentFile]) return;
+  navigator.clipboard.writeText(lessonData.files[currentFile]).then(() => {
+    copyBtn.textContent = 'Copied!';
+    setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+  });
+});
+
+// ===== Resizable Divider =====
+let isDragging = false;
+divider.addEventListener('mousedown', (e) => {
+  isDragging = true;
+  divider.classList.add('active');
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!isDragging) return;
+  const contentArea = document.getElementById('content-area');
+  const rect = contentArea.getBoundingClientRect();
+  const offset = e.clientX - rect.left;
+  const total = rect.width;
+  const pct = Math.max(20, Math.min(80, (offset / total) * 100));
+  docsPanel.style.width = pct + '%';
+});
+
+document.addEventListener('mouseup', () => {
+  if (isDragging) {
+    isDragging = false;
+    divider.classList.remove('active');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }
+});
+
+// ===== Sidebar Toggle =====
+function toggleSidebar() {
+  sidebarCollapsed = !sidebarCollapsed;
+  sidebar.classList.toggle('collapsed', sidebarCollapsed);
+  sidebarToggle.classList.toggle('collapsed', sidebarCollapsed);
+  sidebarToggle.innerHTML = sidebarCollapsed ? '&#9654;' : '&#9664;';
+}
+
+sidebarToggle.addEventListener('click', toggleSidebar);
+sidebarToggleBtn.addEventListener('click', toggleSidebar);
+
+// ===== Keyboard Navigation =====
+document.addEventListener('keydown', (e) => {
+  // Ctrl+F -> focus search
+  if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+    e.preventDefault();
+    searchInput.focus();
+    return;
+  }
+
+  // Ctrl+B -> toggle sidebar
+  if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+    e.preventDefault();
+    toggleSidebar();
+    return;
+  }
+
+  // Escape -> close search, clear highlights
+  if (e.key === 'Escape') {
+    searchResults.classList.remove('active');
+    searchInput.blur();
+    // Clear code highlights
+    codeContent.querySelectorAll('.code-line.highlighted').forEach(el => el.classList.remove('highlighted'));
+    return;
+  }
+
+  // Arrow keys for section navigation (when not in search)
+  if (document.activeElement === searchInput) return;
+
+  const sections = docsPanel.querySelectorAll('.doc-section');
+  if (!sections.length) return;
+
+  if (e.key === 'ArrowDown' || e.key === 'j') {
+    e.preventDefault();
+    const next = Math.min(currentSectionIndex + 1, sections.length - 1);
+    const el = docsPanel.querySelector('[data-section="' + next + '"]');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  if (e.key === 'ArrowUp' || e.key === 'k') {
+    e.preventDefault();
+    const prev = Math.max(currentSectionIndex - 1, 0);
+    const el = docsPanel.querySelector('[data-section="' + prev + '"]');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Space -> toggle read on current section
+  if (e.key === ' ' && document.activeElement === document.body) {
+    e.preventDefault();
+    const sec = docsPanel.querySelector('[data-section="' + currentSectionIndex + '"]');
+    if (sec) {
+      const cb = sec.querySelector('.section-checkbox input');
+      if (cb) {
+        cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event('change'));
+      }
+    }
+  }
+});
+
+// ===== Search =====
+let searchTimeout = null;
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(performSearch, 200);
+});
+
+searchInput.addEventListener('focus', () => {
+  if (searchInput.value.trim().length >= 2) {
+    searchResults.classList.add('active');
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#search-box')) {
+    searchResults.classList.remove('active');
+  }
+});
+
+function performSearch() {
+  const query = searchInput.value.trim().toLowerCase();
+  if (query.length < 2) {
+    searchResults.classList.remove('active');
+    return;
+  }
+
+  const results = [];
+
+  // Search lesson content
+  lessonData.chapters.forEach((ch, ci) => {
+    ch.sections.forEach((sec, si) => {
+      const text = getSectionText(sec);
+      if (text.toLowerCase().includes(query)) {
+        results.push({
+          type: 'section',
+          chapter: ci,
+          section: si,
+          text: text,
+          context: ch.title
+        });
+      }
+    });
+  });
+
+  // Search files
+  if (lessonData.files) {
+    Object.entries(lessonData.files).forEach(([path, content]) => {
+      const lines = content.split('\n');
+      lines.forEach((line, i) => {
+        if (line.toLowerCase().includes(query)) {
+          results.push({
+            type: 'file',
+            file: path,
+            line: i + 1,
+            text: line.trim(),
+            context: basename(path) + ':' + (i + 1)
+          });
+        }
+      });
+    });
+  }
+
+  renderSearchResults(results, query);
+}
+
+function getSectionText(sec) {
+  switch (sec.type) {
+    case 'heading': return sec.text;
+    case 'paragraph': return sec.text;
+    case 'note': return sec.text;
+    case 'list': return sec.items.join(' ');
+    case 'table': return sec.headers.join(' ') + ' ' + sec.rows.map(r => r.join(' ')).join(' ');
+    case 'code-block': return sec.code;
+    case 'code-reference': return sec.file + ' ' + (sec.caption || '');
+    default: return '';
+  }
+}
+
+function renderSearchResults(results, query) {
+  if (results.length === 0) {
+    searchResults.innerHTML = '<div style="padding:16px;color:#888;text-align:center;">No results found</div>';
+    searchResults.classList.add('active');
+    return;
+  }
+
+  const maxShow = 20;
+  let html = '';
+  results.slice(0, maxShow).forEach((r, i) => {
+    const snippet = highlightMatch(r.text, query);
+    html += '<div class="search-result-item" data-type="' + r.type + '" data-chapter="' + (r.chapter || '') + '" data-section="' + (r.section || '') + '" data-file="' + (r.file || '') + '" data-line="' + (r.line || '') + '">';
+    html += '<div class="sr-context">' + escapeHtml(r.context) + '</div>';
+    html += '<div class="sr-text">' + snippet + '</div>';
+    html += '</div>';
+  });
+  if (results.length > maxShow) {
+    html += '<div style="padding:8px 14px;color:#666;font-size:12px;">+' + (results.length - maxShow) + ' more results</div>';
+  }
+
+  searchResults.innerHTML = html;
+  searchResults.classList.add('active');
+
+  // Bind click
+  searchResults.querySelectorAll('.search-result-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const type = item.dataset.type;
+      if (type === 'section') {
+        const ci = parseInt(item.dataset.chapter);
+        const si = parseInt(item.dataset.section);
+        const el = docsPanel.querySelector('[data-chapter="' + ci + '"][data-section="' + si + '"]');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (type === 'file') {
+        const file = item.dataset.file;
+        const line = parseInt(item.dataset.line);
+        loadCodeFile(file, Math.max(1, line - 5), line + 5, [line]);
+      }
+      searchResults.classList.remove('active');
+    });
+  });
+}
+
+function highlightMatch(text, query) {
+  const idx = text.toLowerCase().indexOf(query);
+  if (idx === -1) return escapeHtml(text.substring(0, 100));
+  const start = Math.max(0, idx - 40);
+  const end = Math.min(text.length, idx + query.length + 40);
+  let s = (start > 0 ? '...' : '') + text.substring(start, end) + (end < text.length ? '...' : '');
+  // Highlight
+  const lower = s.toLowerCase();
+  const matchIdx = lower.indexOf(query);
+  if (matchIdx !== -1) {
+    s = escapeHtml(s.substring(0, matchIdx)) + '<mark>' + escapeHtml(s.substring(matchIdx, matchIdx + query.length)) + '</mark>' + escapeHtml(s.substring(matchIdx + query.length));
+  } else {
+    s = escapeHtml(s);
+  }
+  return s;
+}
+
+})();
+</script>
+</body>
+</html>
