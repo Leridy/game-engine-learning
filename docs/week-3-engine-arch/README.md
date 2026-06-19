@@ -1,43 +1,40 @@
-# W3: 游戏引擎核心架构
+# W3: 骨骼动画系统（核心模块）
+
+> 重中之重 — 骨骼动画是现代 2D 游戏引擎的核心能力
 
 ## 学习目标
 
-1. 理解 ECS vs OOP 的核心区别和适用场景
-2. 理解游戏循环、固定时间步、帧率独立
-3. 理解等距坐标系统和深度排序
-4. 理解 A* 寻路和空间分区碰撞检测
+1. 深入理解骨骼动画的每一层：骨骼层级 → FK → 蒙皮 → 动画混合 → 状态机
+2. 理解 LBS 蒙皮公式和 GPU 蒙皮着色器
+3. 理解动画状态机和 Crossfade 混合
+4. 理解网格变形和 IK
 
 ## 每日笔记
 
-- [Day 1: ECS vs OOP](./day-1.md)
-- [Day 2: 游戏循环](./day-2.md)
-- [Day 3: 场景图与等距坐标](./day-3.md)
-- [Day 4: 碰撞检测](./day-4.md)
-- [Day 5: 寻路算法](./day-5.md)
-- [周末: 竞品架构对标](./weekend.md)
+- [Day 1: 骨骼动画基础](./day-1.md)
+- [Day 2: 蒙皮（Skinning）](./day-2.md)
+- [Day 3: 动画剪辑与关键帧插值](./day-3.md)
+- [Day 4: 动画混合与状态机](./day-4.md)
+- [Day 5: 网格变形与 IK](./day-5.md)
+- [周末: 竞品骨骼动画对标](./weekend.md)
 
 ## 知识自检
 
-- [ ] ECS 和 OOP 继承链的核心区别？缓存友好性如何影响性能？
-- [ ] A* 寻路的启发函数如何影响结果？
-- [ ] 等距网格的邻居计算有什么坑？
-- [ ] 游戏循环为什么要固定时间步？
+- [ ] 正向运动学公式？
+- [ ] LBS 蒙皮完整公式？
+- [ ] CPU vs GPU 蒙皮的区别？
+- [ ] Crossfade 如何处理角度插值？
+- [ ] 动画状态机 Transition 如何触发？
+- [ ] FABRIK vs CCD IK 的核心区别？
 
-## miu2d 关键文件
+## 关键源码
 
 | 文件 | 关注点 |
 |---|---|
-| `character/character.ts` | 17 状态状态机 |
-| `character/character-base.ts` | 属性和位置 |
-| `character/character-movement.ts` | 移动和寻路 |
-| `map/map-base.ts` | 等距地图逻辑 |
-| `runtime/` | 主循环 |
-| `npc/npc-ai.ts` | NPC AI |
-| `engine-wasm/src/pathfinder.rs` | 5 种寻路策略 |
-| `engine-wasm/src/collision.rs` | 空间哈希 |
-
-## 竞品参考
-
-- Unity DOTS: 并行 ECS
-- Godot: 场景树 + Signals
-- Cocos: 组件系统 + GFX 抽象
+| Cocos: `3d/skeletal-animation/skeletal-animation.ts` | SkeletalAnimation 组件 |
+| Cocos: `3d/skinned-mesh-renderer/skinned-mesh-renderer.ts` | SkinnedMeshRenderer |
+| Cocos: `animation/animation-clip.ts` | Track 系统 |
+| Cocos: `animation/skeletal-animation-utils.ts` | IJointTransform |
+| Cocos: `animation/marionette/animation-controller.ts` | Marionette 状态机 |
+| Cocos: `3d/skeletal-animation/skeletal-animation-blending.ts` | 混合系统 |
+| Cocos: `cocos/spine/skeleton.ts` | Spine 集成 |

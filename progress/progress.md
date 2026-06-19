@@ -6,108 +6,100 @@
 
 | 周 | 主题 | 进度 | 状态 |
 |---|---|---|---|
-| W1 | WebGL 渲染管线 | 0/5 | 🔲 未开始 |
-| W2 | Rust + WebAssembly | 0/5 | 🔲 未开始 |
-| W3 | 游戏引擎核心架构 | 0/5 | 🔲 未开始 |
-| W4 | 编辑器 + 系统设计 + 竞品对标 | 0/5 | 🔲 未开始 |
+| W1 | WebGPU 渲染管线 | 0/5 | 🔲 未开始 |
+| W2 | Rust + WebAssembly + WebGPU 集成 | 0/5 | 🔲 未开始 |
+| W3 | 骨骼动画系统（核心模块） | 0/5 | 🔲 未开始 |
+| W4 | 引擎架构设计 + Cocos 源码深度分析 | 0/5 | 🔲 未开始 |
 
 ---
 
-## W1: WebGL 渲染管线
+## W1: WebGPU 渲染管线
 
 | 天 | 知识点 | 状态 | 完成日期 | 笔记 |
 |---|---|---|---|---|
-| D1 | WebGL 基础：上下文、着色器、缓冲区、绘制调用 | 🔲 | | |
-| D1 | miu2d: `webgl-renderer.ts` 上下文初始化 | 🔲 | | |
-| D2 | GLSL 顶点/片段着色器、坐标变换 | 🔲 | | |
-| D2 | miu2d: `shaders.ts` 3 个着色器 | 🔲 | | |
-| D3 | 纹理、纹理图集、多纹理采样 | 🔲 | | |
-| D3 | miu2d: `sprite-batcher.ts` 8 纹理槽位 | 🔲 | | |
-| D4 | 批处理原理：draw call 成本 | 🔲 | | |
-| D4 | miu2d: `map-renderer.ts` atlas 分桶 | 🔲 | | |
-| D5 | WebGL 状态管理、混合模式、FBO | 🔲 | | |
-| D5 | miu2d: `gl-state-cache.ts` + 水面着色器 | 🔲 | | |
-| W1E | 竞品渲染对标：PixiJS/Cocos/Godot | 🔲 | | |
-| W1E | 交付：最小 WebGL 2D 渲染 demo | 🔲 | | |
+| D1 | WebGPU 基础：Adapter/Device/Buffer/Texture/Sampler | 🔲 | | |
+| D1 | Cocos: `gfx/base/device.ts` + `gfx/webgpu/webgpu-device.ts` | 🔲 | | |
+| D2 | WGSL 着色器语言：语法、入口点、属性、对齐规则 | 🔲 | | |
+| D2 | Cocos: `gfx/webgpu/webgpu-shader.ts` | 🔲 | | |
+| D3 | Pipeline State Objects + Bind Groups | 🔲 | | |
+| D3 | Cocos: `gfx/base/pipeline-state.ts` + `gfx/webgpu/webgpu-pipeline-state.ts` | 🔲 | | |
+| D4 | Command Encoder + 实例化渲染 | 🔲 | | |
+| D4 | Cocos: `2d/renderer/batcher-2d.ts` + `rendering/render-queue.ts` | 🔲 | | |
+| D5 | Compute Shader + 2D 渲染实战 | 🔲 | | |
+| D5 | Cocos: `gfx/webgpu/webgpu-command-buffer.ts` + `2d/renderer/render-data.ts` | 🔲 | | |
+| W1E | 竞品 WebGPU 对标：PixiJS/Cocos/Babylon.js | 🔲 | | |
+| W1E | 交付：WebGPU 实例化渲染 demo | 🔲 | | |
 
 ---
 
-## W2: Rust + WebAssembly
+## W2: Rust + WebAssembly + WebGPU 集成
 
 | 天 | 知识点 | 状态 | 完成日期 | 笔记 |
 |---|---|---|---|---|
 | D1 | Rust 基础：所有权、借用、生命周期 | 🔲 | | |
 | D1 | miu2d: `Cargo.toml` 依赖和编译配置 | 🔲 | | |
-| D2 | Rust 结构体、枚举、trait、泛型 | 🔲 | | |
+| D2 | Rust 类型系统：结构体、枚举、trait、泛型 | 🔲 | | |
 | D2 | miu2d: `pathfinder.rs` 数据结构 | 🔲 | | |
 | D3 | wasm-bindgen/wasm-pack 编译链路 | 🔲 | | |
 | D3 | miu2d: `lib.rs` 导出函数 | 🔲 | | |
 | D4 | JS/WASM 通信：线性内存、零拷贝 | 🔲 | | |
 | D4 | miu2d: `wasm-manager.ts` + `wasm-path-finder.ts` | 🔲 | | |
-| D5 | WASM 性能特性：何时用/不用 WASM | 🔲 | | |
+| D5 | WASM 性能特性 + Compute Shader 分工 | 🔲 | | |
 | D5 | miu2d: `collision.rs` 空间哈希 | 🔲 | | |
-| W2E | 竞品 WASM 用法：Bevy/Godot GDExtension | 🔲 | | |
-| W2E | 交付：Rust→WASM→JS demo | 🔲 | | |
+| W2E | Rust→WASM→JS demo | 🔲 | | |
 
 ---
 
-## W3: 游戏引擎核心架构
+## W3: 骨骼动画系统（核心模块）
 
 | 天 | 知识点 | 状态 | 完成日期 | 笔记 |
 |---|---|---|---|---|
-| D1 | ECS vs OOP：数据布局、缓存友好 | 🔲 | | |
-| D1 | miu2d: `character/` 4 层继承链 | 🔲 | | |
-| D2 | 游戏循环：固定时间步、插值 | 🔲 | | |
-| D2 | miu2d: `runtime/` 主循环 | 🔲 | | |
-| D3 | 场景图、坐标系统、等距投影 | 🔲 | | |
-| D3 | miu2d: `map-base.ts` 等距坐标 | 🔲 | | |
-| D4 | 碰撞检测：AABB、空间哈希、四叉树 | 🔲 | | |
-| D4 | miu2d: `collision.ts` + `wasm-collision.ts` | 🔲 | | |
-| D5 | 寻路算法：A*、等距网格适配 | 🔲 | | |
-| D5 | miu2d: `pathfinder.rs` 5 种策略 | 🔲 | | |
-| W3E | 竞品架构对标：Unity DOTS/Godot/Cocos | 🔲 | | |
-| W3E | 交付：miu2d 模块依赖图和数据流图 | 🔲 | | |
+| D1 | 骨骼层级、Bind Pose、FK、2D 变换矩阵 | 🔲 | | |
+| D1 | Cocos: `skeletal-animation.ts` + `skeletal-animation-utils.ts` | 🔲 | | |
+| D2 | 蒙皮：LBS 公式、CPU vs GPU 蒙皮、WGSL 蒙皮着色器 | 🔲 | | |
+| D2 | Cocos: `skinned-mesh-renderer.ts` + Unity SpriteSkin | 🔲 | | |
+| D3 | 动画剪辑：Track/Curve/Keyframe、插值方法 | 🔲 | | |
+| D3 | Cocos: `animation-clip.ts` + Spine JSON 格式 | 🔲 | | |
+| D4 | 动画混合：Crossfade/Additive/Layer、状态机 | 🔲 | | |
+| D4 | Cocos: `animation-controller.ts` (Marionette) + 混合系统 | 🔲 | | |
+| D5 | 网格变形 + IK（CCD/FABRIK）+ Sprite 换装 | 🔲 | | |
+| D5 | Cocos: `cocos/spine/assembler/` + `skeleton.ts` | 🔲 | | |
+| W3E | 竞品骨骼动画对标：Unity/Cocos/Godot/Spine | 🔲 | | |
+| W3E | 交付：骨骼动画数据流图 | 🔲 | | |
 
 ---
 
-## W4: 编辑器 + 系统设计 + 竞品对标
+## W4: 引擎架构设计 + Cocos 源码深度分析
 
 | 天 | 知识点 | 状态 | 完成日期 | 笔记 |
 |---|---|---|---|---|
-| D1 | 游戏编辑器架构：Inspector/Hierarchy/SceneView | 🔲 | | |
-| D1 | miu2d: `dashboard/` 13 个编辑模块 | 🔲 | | |
-| D2 | 脚本系统设计：DSL、Lua、GameAPI | 🔲 | | |
-| D2 | miu2d: `script/` 双执行模型 | 🔲 | | |
-| D3 | 资源管线：格式解析、图集、异步加载 | 🔲 | | |
-| D3 | miu2d: `resource/` 8 种解码器 | 🔲 | | |
-| D4 | 音频、粒子、天气、UI 系统 | 🔲 | | |
-| D4 | miu2d: `audio/` `weather/` `gui/` | 🔲 | | |
-| D5 | 自己的引擎架构设计文档初稿 | 🔲 | | |
-| D5 | 对标 miu2d 和竞品，确定技术选型 | 🔲 | | |
-| W4E | 竞品编辑器对标：Unity/Cocos/Godot | 🔲 | | |
-| W4E | 交付：完整架构设计文档 | 🔲 | | |
+| D1 | Cocos GFX 抽象层深度分析 | 🔲 | | |
+| D2 | Cocos 渲染管线深度分析 | 🔲 | | |
+| D3 | Cocos 骨骼动画系统深度分析 | 🔲 | | |
+| D4 | 游戏编辑器 + 脚本系统 | 🔲 | | |
+| D5 | 自己的架构设计文档 | 🔲 | | |
+| W4E | 完善架构设计文档 | 🔲 | | |
 
 ---
 
 ## 知识自检
 
-学完每个模块后，能回答这些问题才算通过：
-
-### WebGL ✅/🔲
-- [ ] draw call 的成本在哪里？为什么批处理能优化？
-- [ ] 纹理图集和多纹理采样各自的优劣？
-- [ ] WebGL 状态机为什么需要状态缓存？
+### WebGPU ✅/🔲
+- [ ] WebGPU 和 WebGL 的核心架构区别是什么？
+- [ ] Pipeline State Object 为什么是不可变的？
+- [ ] BindGroup 和 BindGroupLayout 的关系？
+- [ ] 实例化渲染如何用一次 draw call 画 N 个 sprite？
+- [ ] Compute Shader 的典型用途？
 
 ### Rust/WASM ✅/🔲
 - [ ] 所有权和借用解决了什么问题？
 - [ ] JS 和 WASM 之间数据传输的几种方式及性能差异？
-- [ ] 什么场景该用 WASM，什么场景不该？
+- [ ] 什么场景该用 WASM，什么场景该用 Compute Shader？
 
-### 游戏引擎架构 ✅/🔲
-- [ ] ECS 和 OOP 继承链的核心区别？缓存友好性如何影响性能？
-- [ ] A* 寻路的启发函数如何影响结果？等距网格的邻居计算有什么坑？
-- [ ] 游戏循环为什么要固定时间步？
-
-### 编辑器/脚本 ✅/🔲
-- [ ] 阻塞式脚本如何在单线程游戏循环中实现？
-- [ ] GameAPI 如何同时服务 DSL 和 Lua 两种运行时？
+### 骨骼动画 ✅/🔲
+- [ ] 骨骼层级的正向运动学公式是什么？
+- [ ] LBS 蒙皮的完整公式？skinMatrix 是什么？
+- [ ] CPU 蒙皮和 GPU 蒙皮的区别和适用场景？
+- [ ] Crossfade 混合如何处理角度插值（最短路径）？
+- [ ] 动画状态机的 Transition 如何触发？
+- [ ] FABRIK 和 CCD IK 的核心区别？

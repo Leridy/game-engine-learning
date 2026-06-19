@@ -1,40 +1,37 @@
-# W1: WebGL 渲染管线
+# W1: WebGPU 渲染管线
+
+> 注意：已从 WebGL 转向 WebGPU
 
 ## 学习目标
 
-1. 理解 WebGL 状态机模型和渲染管线
-2. 能手写 GLSL 顶点/片段着色器
-3. 理解批处理为什么能优化性能
-4. 能用原生 WebGL 画出 1000 个 sprite
+1. 理解 WebGPU 核心概念（Adapter/Device/Buffer/Texture/Pipeline/BindGroup）
+2. 掌握 WGSL 着色器语言
+3. 理解实例化渲染和 Compute Shader
+4. 能用 WebGPU 实例化画出 1000 个 sprite
 
 ## 每日笔记
 
-- [Day 1: WebGL 基础](./day-1.md)
-- [Day 2: GLSL 着色器](./day-2.md)
-- [Day 3: 纹理与纹理图集](./day-3.md)
-- [Day 4: 批处理原理](./day-4.md)
-- [Day 5: 状态管理与后处理](./day-5.md)
-- [周末: 竞品渲染对标](./weekend.md)
+- [Day 1: WebGPU 基础](./day-1.md)
+- [Day 2: WGSL 着色器语言](./day-2.md)
+- [Day 3: Pipeline State Objects + Bind Groups](./day-3.md)
+- [Day 4: Command Encoder + 实例化渲染](./day-4.md)
+- [Day 5: Compute Shader + 2D 渲染实战](./day-5.md)
+- [周末: 竞品 WebGPU 对标](./weekend.md)
 
 ## 知识自检
 
-- [ ] draw call 的成本在哪里？为什么批处理能优化？
-- [ ] 纹理图集和多纹理采样各自的优劣？
-- [ ] WebGL 状态机为什么需要状态缓存？
-- [ ] FBO 的用途是什么？
+- [ ] WebGPU 和 WebGL 的核心架构区别？
+- [ ] Pipeline State Object 为什么不可变？
+- [ ] BindGroup 和 BindGroupLayout 的关系？
+- [ ] 实例化渲染如何一次 draw call 画 N 个 sprite？
+- [ ] Compute Shader 的典型用途？
 
-## miu2d 关键文件
+## 关键源码
 
 | 文件 | 关注点 |
 |---|---|
-| `renderer/webgl-renderer.ts` | 上下文初始化、主渲染循环 |
-| `renderer/shaders.ts` | 3 个 GLSL 着色器 |
-| `renderer/sprite-batcher.ts` | 8 纹理槽位批处理 |
-| `renderer/gl-state-cache.ts` | GL 状态缓存 |
-| `map/map-renderer.ts` | atlas 分桶策略 |
-
-## 竞品参考
-
-- PixiJS: `Batcher` 类自动批处理
-- Cocos: `Batcher2D` 独立 2D 批处理器
-- Godot: `RenderingServerCanvas` 渲染命令抽象
+| Cocos: `gfx/base/device.ts` | Device 抽象工厂 |
+| Cocos: `gfx/webgpu/webgpu-device.ts` | WebGPU 后端初始化 |
+| Cocos: `gfx/base/pipeline-state.ts` | Pipeline 抽象 |
+| Cocos: `2d/renderer/batcher-2d.ts` | 2D 批处理器 |
+| Cocos: `rendering/render-queue.ts` | 渲染队列排序 |
