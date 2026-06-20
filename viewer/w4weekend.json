@@ -1,0 +1,128 @@
+{
+  "title": "W4周末: 总结与下一步",
+  "chapters": [
+    {
+      "id": "D4-W-1",
+      "title": "四周学习总结",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "学习路线回顾"},
+        {"type": "paragraph", "text": "过去 4 周的系统学习覆盖了游戏引擎的 6 大核心模块。从底层的数学基础到高层的编辑器架构，每一层都通过阅读真实引擎源码（Cocos Creator、miu2d）来加深理解。以下是每周的学习主题和关键收获："},
+        {"type": "table", "headers": ["周次", "主题", "关键收获"], "rows": [
+          ["W1", "数学基础 + ECS", "向量/矩阵/四元数的几何意义；ECS 的数据驱动设计理念"],
+          ["W2", "2D 渲染管线", "精灵渲染、图集批处理、着色器基础、混合模式"],
+          ["W3", "骨骼动画系统", "骨骼层级树、FK/IK、蒙皮算法、动画混合与状态机"],
+          ["W4", "引擎架构深入", "GFX 抽象层、渲染管线分层、脚本系统、编辑器架构"]
+        ]},
+        {"type": "heading", "level": 3, "text": "核心技术知识点"},
+        {"type": "list", "items": [
+          "GFX 抽象层：Device 工厂模式、Buffer/Texture/Shader 资源抽象、跨平台后端",
+          "渲染管线：Pipeline → Flow → Stage 三级架构、RenderQueue 排序、场景剔除与 UBO",
+          "骨骼动画：Baked vs Real-Time 模式、Socket 挂点、AnimationState 生命周期、WrapMode 时间包装",
+          "脚本系统：DSL 脚本执行器、调用栈与嵌套、阻塞式异步操作、GameAPI 统一接口",
+          "编辑器架构：面板设计、编辑器与引擎的关系、场景序列化、属性反射",
+          "2D 渲染：Batcher2D 合批策略、静态顶点缓冲、合批中断分析"
+        ]}
+      ]
+    },
+    {
+      "id": "D4-W-2",
+      "title": "引擎架构核心要点",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "架构设计的关键原则"},
+        {"type": "paragraph", "text": "通过 4 周的源码阅读，可以总结出游戏引擎架构设计的几条核心原则："},
+        {"type": "heading", "level": 3, "text": "1. 抽象与分离"},
+        {"type": "paragraph", "text": "引擎的每一层都应该只依赖下一层的抽象接口，而非具体实现。GFX 抽象层是最好的例子——上层渲染逻辑完全不关心底层是 WebGL 还是 Vulkan。这种分离使得切换平台、替换实现成为可能。"},
+        {"type": "heading", "level": 3, "text": "2. 数据驱动"},
+        {"type": "paragraph", "text": "ECS 模式、动画 Track 数据、渲染队列排序——这些设计都遵循数据驱动原则。将数据和行为分离，数据按类型连续存储以优化缓存，行为（System）只读写自己关心的数据。"},
+        {"type": "heading", "level": 3, "text": "3. 分层与组合"},
+        {"type": "paragraph", "text": "Pipeline-Flow-Stage 的分层、BlendTree 的组合、GameAPI 的领域分组——好的架构总是将复杂系统拆分为可组合的小模块。每个模块职责单一、接口清晰、可以独立测试。"},
+        {"type": "heading", "level": 3, "text": "4. 缓存与复用"},
+        {"type": "paragraph", "text": "Sampler 缓存、RenderPass 缓存、StaticVBAccessor、DrawBatch 池——引擎中到处可见缓存和对象池。GPU 资源的创建和销毁成本很高，通过缓存和复用可以显著减少开销。"},
+        {"type": "heading", "level": 3, "text": "5. 异步与阻塞"},
+        {"type": "paragraph", "text": "脚本系统的 BlockingResolver 设计、Device 的 Promise 初始化、纹理异步加载——好的引擎善于处理异步操作。关键是在不阻塞主线程的前提下，提供同步风格的编程接口。"}
+      ]
+    },
+    {
+      "id": "D4-W-3",
+      "title": "3 个月开发计划",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "阶段一：基础框架（第 1-4 周）"},
+        {"type": "list", "items": [
+          "搭建 Rust + WASM 项目结构，配置 wasm-bindgen 和 wasm-pack",
+          "实现 ECS 核心（Entity、Component、System、World）",
+          "接入 wgpu 库，实现 Device 抽象和基础资源管理（Buffer、Texture、Shader）",
+          "实现基础的 2D 渲染管线：Sprite Batch → RenderPass → 屏幕输出",
+          "实现基础的输入系统（键盘、鼠标、触摸）"
+        ]},
+        {"type": "heading", "level": 3, "text": "阶段二：核心功能（第 5-8 周）"},
+        {"type": "list", "items": [
+          "实现骨骼动画系统：AnimationClip 加载、AnimationState 播放、GPU Skinning",
+          "实现完整的 2D 渲染管线：图集批处理、混合模式、裁剪（Mask）、粒子系统",
+          "实现脚本系统：嵌入式 Lua 或 Rhai，GameAPI 接口",
+          "实现基础的物理系统（Rapier 集成）",
+          "实现音频系统（Web Audio API 集成）"
+        ]},
+        {"type": "heading", "level": 3, "text": "阶段三：编辑器与完善（第 9-12 周）"},
+        {"type": "list", "items": [
+          "实现编辑器基础框架：场景视图、层级树、属性面板",
+          "实现资源管线：纹理压缩、着色器编译、场景序列化",
+          "实现撤销/重做系统",
+          "实现 Inspector 组件属性反射",
+          "完善文档和示例项目"
+        ]},
+        {"type": "heading", "level": 3, "text": "里程碑检查点"},
+        {"type": "table", "headers": ["里程碑", "时间", "验收标准"], "rows": [
+          ["M1: Hello Triangle", "第 2 周", "能在浏览器中渲染一个彩色三角形"],
+          ["M2: Sprite 渲染", "第 4 周", "能批量渲染 1000+ 精灵，60fps"],
+          ["M3: 骨骼动画", "第 6 周", "能播放 glTF 角色的骨骼动画"],
+          ["M4: 可交互 Demo", "第 8 周", "能运行一个简单的 2D RPG Demo"],
+          ["M5: 编辑器原型", "第 10 周", "能在编辑器中可视化编辑场景"],
+          ["M6: 完整 Demo", "第 12 周", "能在编辑器中制作并运行一个完整的小游戏"]
+        ]}
+      ]
+    },
+    {
+      "id": "D4-W-4",
+      "title": "持续学习资源",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "推荐书籍"},
+        {"type": "list", "items": [
+          "《Game Engine Architecture》— Jason Gregory，引擎架构的圣经",
+          "《Real-Time Rendering》— Tomas Akenine-Moller 等，渲染技术百科全书",
+          "《Foundations of Game Engine Development》系列 — Eric Lengyel，数学和几何基础",
+          "《Game Programming Patterns》— Robert Nystrom，免费在线版，设计模式入门",
+          "《Rust for Rustaceans》— Jon Gjengset，Rust 进阶必读"
+        ]},
+        {"type": "heading", "level": 3, "text": "开源引擎源码"},
+        {"type": "table", "headers": ["引擎", "语言", "推荐关注模块", "学习价值"], "rows": [
+          ["Cocos Creator", "TypeScript", "GFX、渲染管线、动画系统", "Web 引擎完整实现"],
+          ["Bevy", "Rust", "ECS、渲染、资源管理", "Rust 引擎最佳实践"],
+          ["Godot", "C++ / GDScript", "场景系统、编辑器、渲染", "编辑器架构参考"],
+          ["macroquad", "Rust", "极简 2D 引擎", "学习最小引擎骨架"],
+          ["wgpu-examples", "Rust", "WebGPU 使用示例", "学习 wgpu API"]
+        ]},
+        {"type": "heading", "level": 3, "text": "在线学习资源"},
+        {"type": "list", "items": [
+          "WebGPU 官方文档：https://www.w3.org/TR/webgpu/",
+          "WGSL 规范：https://www.w3.org/TR/WGSL/",
+          "wgpu 教程：https://sotrh.github.io/learn-wgpu/",
+          "The Cherno 的游戏引擎系列（YouTube）",
+          "GDC Vault 游戏开发者大会演讲",
+          "GPU Gems 系列（NVIDIA 免费在线）"
+        ]},
+        {"type": "heading", "level": 3, "text": "社区与论坛"},
+        {"type": "list", "items": [
+          "r/gamedev（Reddit）— 游戏开发综合社区",
+          "r/rust_gamedev（Reddit）— Rust 游戏开发专区",
+          "WebGPU Matrix/Discord — WebGPU 技术讨论",
+          "Cocos 论坛 — Cocos 引擎用户社区",
+          "GameDev.net — 老牌游戏开发论坛"
+        ]},
+        {"type": "heading", "level": 3, "text": "下一步行动"},
+        {"type": "paragraph", "text": "理论学习已经完成，现在是动手实践的时候了。建议从最小的可运行项目开始——用 Rust + wgpu 在浏览器中渲染一个三角形。然后逐步扩展：添加纹理、实现 Sprite 批处理、接入 ECS、实现动画系统。每一步都要确保代码能运行、能看到结果。"},
+        {"type": "note", "text": "引擎开发是一场马拉松，不是短跑。不要试图一开始就设计完美的架构——先让代码跑起来，再逐步重构和优化。每实现一个功能，就对引擎架构的理解更深一层。"}
+      ]
+    }
+  ],
+  "files": {}
+}

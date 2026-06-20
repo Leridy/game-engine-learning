@@ -1,0 +1,112 @@
+{
+  "title": "W4D3: Cocos 骨骼动画系统",
+  "chapters": [
+    {
+      "id": "D4-3-1",
+      "title": "SkeletalAnimation 组件总览",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "骨骼动画组件的定位"},
+        {"type": "paragraph", "text": "SkeletalAnimation 是 Cocos Creator 中驱动骨骼动画的核心组件。它继承自 Animation 组件，在其基础上额外提供了两个关键功能：预烘焙动画模式（Baked Animation）和骨骼挂点系统（Socket System）。这使得开发者可以在运行时效率和动画灵活性之间做出权衡。"},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 86, "endLine": 102, "caption": "SkeletalAnimation 组件：继承 Animation，提供烘焙动画和骨骼挂点功能", "highlights": [97, 98, 99, 100, 101, 102]},
+        {"type": "heading", "level": 3, "text": "Baked vs Real-Time 模式"},
+        {"type": "table", "headers": ["特性", "Baked（预烘焙）", "Real-Time（实时计算）"], "rows": [
+          ["运行时性能", "极高（GPU 直接读取纹理）", "中等（CPU 逐帧计算骨骼变换）"],
+          ["动画混合", "不支持", "支持（多动画叠加/混合）"],
+          ["运行时编辑", "不支持（动画效果完全固定）", "支持（IK、物理驱动等）"],
+          ["内存占用", "较高（存储每帧骨骼矩阵纹理）", "较低"],
+          ["挂点系统", "不支持", "支持"],
+          ["编辑器模式", "始终使用 Real-Time", "根据设置切换"]
+        ]},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 128, "endLine": 150, "caption": "useBakedAnimation 属性：控制是否使用预烘焙动画，默认启用", "highlights": [139, 140, 144, 150]}
+      ]
+    },
+    {
+      "id": "D4-3-2",
+      "title": "Socket 挂点系统",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "挂点的作用"},
+        {"type": "paragraph", "text": "挂点（Socket）系统允许开发者将自定义节点绑定到骨骼动画的特定关节上，使该节点跟随骨骼运动。典型应用包括：武器挂载到手部骨骼、粒子特效附着到脚步、UI 跟随头部等。"},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 47, "endLine": 68, "caption": "Socket 类：定义骨骼路径（path）和目标节点（target）", "highlights": [47, 55, 61, 64]},
+        {"type": "heading", "level": 3, "text": "挂点的注册和同步"},
+        {"type": "paragraph", "text": "SkeletalAnimation 通过 sockets 属性管理挂点列表。当挂点列表变化时，组件会遍历所有已创建的 SkeletalAnimationState，调用 rebuildSocketCurves() 重建挂点曲线。在 Real-Time 模式下，挂点还会注册到全局动画管理器中，由管理器在每帧更新时同步变换矩阵。"},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 112, "endLine": 126, "caption": "sockets setter：更新挂点列表并通知所有动画状态重建挂点曲线", "highlights": [114, 118, 119, 121, 125]},
+        {"type": "heading", "level": 3, "text": "创建和查询挂点"},
+        {"type": "paragraph", "text": "createSocket() 方法提供了一个便捷的挂点创建接口。它先查找是否已存在同路径的挂点，如果存在则直接返回目标节点；否则创建新的 Node 作为目标，注册到挂点列表中，并触发重建。"},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 265, "endLine": 275, "caption": "createSocket：查找或创建挂点目标节点", "highlights": [265, 266, 268, 269, 270, 271, 272, 273]},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 220, "endLine": 233, "caption": "querySockets：查询所有可用的骨骼路径", "highlights": [220, 221, 222, 224, 230]}
+      ]
+    },
+    {
+      "id": "D4-3-3",
+      "title": "Baked 动画模式的工作原理",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "烘焙动画的实现机制"},
+        {"type": "paragraph", "text": "在 Baked 模式下，骨骼动画的关键帧数据会被预先计算并存储为 GPU 纹理（Joint Texture）。运行时不再需要 CPU 逐帧计算每根骨骼的变换矩阵，而是由顶点着色器直接从纹理中采样获取。这种方式将骨骼动画的计算开销从 CPU 转移到了 GPU，极大提升了性能。"},
+        {"type": "heading", "level": 3, "text": "Baked 模式的播放流程"},
+        {"type": "paragraph", "text": "当 useBakedEffectively 为 true 时，doPlayOrCrossFade 方法会直接操作 SkeletalAnimationState，停止当前状态并播放新状态，完全跳过 Animation 组件的混合逻辑。"},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 325, "endLine": 336, "caption": "doPlayOrCrossFade：Baked 模式下直接切换动画状态，跳过混合", "highlights": [326, 327, 328, 330, 331, 332]},
+        {"type": "heading", "level": 3, "text": "SkinnedMeshRenderer 的联动"},
+        {"type": "paragraph", "text": "SkeletalAnimation 与 SkinnedMeshRenderer 紧密协作。当 SkinnedMeshRenderer 被添加到场景时，它会通知关联的 SkeletalAnimation 组件，组件则根据当前模式告知渲染器是否使用烘焙动画。在 Baked 模式下，渲染器会调用 uploadAnimation() 将动画数据上传为纹理。"},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 280, "endLine": 295, "caption": "notifySkinnedMeshAdded：通知 SkinnedMeshRenderer 关联动画状态", "highlights": [280, 281, 287, 288, 289, 290, 291, 292]},
+        {"type": "heading", "level": 3, "text": "模式切换的处理"},
+        {"type": "paragraph", "text": "_applyBakeFlagChange 方法处理运行时的模式切换。它需要更新所有动画状态的烘焙标志、通知所有关联的渲染器、管理全局动画管理器中的 Socket 注册，并控制子节点的变换更新开关。"},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 356, "endLine": 376, "caption": "_applyBakeFlagChange：统一处理烘焙模式切换", "highlights": [356, 357, 359, 364, 368, 369, 371, 375]}
+      ]
+    },
+    {
+      "id": "D4-3-4",
+      "title": "AnimationState 深入分析",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "AnimationState 的核心职责"},
+        {"type": "paragraph", "text": "AnimationState 是 Cocos 动画系统的运行时核心。每个 AnimationClip 对应一个 AnimationState 实例，它管理着动画的播放状态（时间、速度、循环模式）、曲线采样器（evaluator）以及事件系统。AnimationState 继承自 Playable，获得了 play/stop/pause/resume 等通用播放控制能力。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 85, "endLine": 104, "caption": "AnimationState 类：管理 clip、name、length 等核心属性", "highlights": [85, 90, 98, 102]},
+        {"type": "heading", "level": 3, "text": "播放参数"},
+        {"type": "table", "headers": ["属性", "类型", "说明"], "rows": [
+          ["wrapMode", "WrapMode", "循环模式（Normal/Loop/PingPong/Reverse 等）"],
+          ["repeatCount", "number", "重复次数，Infinity 为无限循环"],
+          ["speed", "number", "播放速率，1 为正常速度"],
+          ["time", "number", "当前累计播放时间（秒）"],
+          ["weight", "number", "动画权重，用于混合"],
+          ["playbackRange", "{min, max}", "播放范围，允许只播放动画的一部分"],
+          ["delay", "number", "延迟播放秒数"]
+        ]},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 115, "endLine": 132, "caption": "wrapMode setter：动态修改循环模式会重置时间和重复次数", "highlights": [119, 120, 122, 123, 125, 127, 131]}
+      ]
+    },
+    {
+      "id": "D4-3-5",
+      "title": "AnimationState 的初始化与采样",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "initialize：曲线加载和评估器创建"},
+        {"type": "paragraph", "text": "AnimationState 的 initialize 方法是最关键的初始化步骤。它设置动画的持续时间、速度、循环模式，然后根据 BlendStateBuffer 创建 PoseOutput（姿态输出），最后调用 clip.createEvaluator 创建曲线评估器。评估器负责在每帧将动画曲线的采样结果写入目标节点。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 334, "endLine": 392, "caption": "initialize：设置动画参数、创建 PoseOutput 和曲线评估器", "highlights": [334, 335, 353, 355, 371, 373, 375, 376, 377, 378, 380, 383, 384, 388, 389]},
+        {"type": "heading", "level": 3, "text": "每帧更新流程"},
+        {"type": "paragraph", "text": "update 方法是每帧由动画管理器调用的入口。它处理延迟播放、累加时间，然后调用 process 或 simpleProcess。process 会执行完整的 WrappedInfo 计算（处理循环和方向反转），simpleProcess 则用于无限循环的简单情况，跳过复杂的换算逻辑。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 482, "endLine": 503, "caption": "update：每帧更新入口，处理延迟和时间累加", "highlights": [482, 485, 496, 497, 498, 500, 502]},
+        {"type": "heading", "level": 3, "text": "曲线采样"},
+        {"type": "paragraph", "text": "sample 方法执行实际的动画曲线采样。它先通过 getWrappedInfo 计算当前帧的包装信息（处理循环和反转），然后调用 _sampleCurves 将采样结果写入目标节点的变换属性。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 505, "endLine": 513, "caption": "sample：采样动画曲线并应用到目标节点", "highlights": [505, 506, 507, 510, 511, 512]},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 546, "endLine": 554, "caption": "_sampleCurves：设置权重并调用评估器", "highlights": [546, 547, 549, 551, 552]}
+      ]
+    },
+    {
+      "id": "D4-3-6",
+      "title": "WrapMode 与 WrappedInfo",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "动画循环模式"},
+        {"type": "paragraph", "text": "WrapMode 定义了动画到达末尾时的行为。Cocos 支持 Normal（播放一次）、Loop（循环播放）、PingPong（来回播放）、Reverse（反向播放）等多种模式，以及它们的组合。WrapMode 使用位掩码设计，可以组合出丰富的播放行为。"},
+        {"type": "heading", "level": 3, "text": "getWrappedInfo：时间包装计算"},
+        {"type": "paragraph", "text": "getWrappedInfo 是 AnimationState 中最复杂的方法之一。它将累加的播放时间转换为实际的采样时间，处理循环次数、方向反转、播放范围限制等逻辑。返回的 WrappedInfo 包含 time（实际采样时间）、ratio（归一化时间）、direction（播放方向）、iterations（迭代次数）、stopped（是否结束）。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 648, "endLine": 716, "caption": "getWrappedInfo：将累加时间转换为实际采样时间，处理循环和反转", "highlights": [648, 660, 670, 673, 674, 693, 694, 696, 700, 705, 706, 709, 710]},
+        {"type": "heading", "level": 3, "text": "方向反转逻辑"},
+        {"type": "paragraph", "text": "_needReverse 方法判断当前迭代是否需要反向播放。在 PingPong 模式下，奇数次迭代需要反转；在 Reverse 模式下，始终反转。两种模式可以叠加，通过异或运算得到最终方向。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 627, "endLine": 646, "caption": "_needReverse：判断是否需要反向播放", "highlights": [627, 631, 637, 639, 642, 643, 645]},
+        {"type": "note", "text": "AnimationState 的时间管理系统是动画引擎中最容易出 bug 的部分。它需要同时处理正向/反向播放、有限/无限循环、播放范围裁剪、延迟播放等多种边界情况。"}
+      ]
+    }
+  ],
+  "files": {
+    "cocos/3d/skeletal-animation/skeletal-animation.ts": "骨骼动画组件 — 提供 Baked/Real-Time 模式切换和 Socket 挂点系统",
+    "cocos/animation/animation-state.ts": "动画状态 — 管理动画播放生命周期、曲线采样和时间包装计算"
+  }
+}

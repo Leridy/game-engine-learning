@@ -1,0 +1,134 @@
+{
+  "title": "W2D5: WASM 性能特性",
+  "chapters": [
+    {
+      "id": "D2-5-1",
+      "title": "WASM 擅长什么、不擅长什么",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "WASM 的性能特征"},
+        {"type": "paragraph", "text": "WebAssembly 并不是万能的性能银弹。理解它的性能边界，才能正确选择哪些任务用 WASM、哪些留在 JS。"},
+        {"type": "heading", "level": 3, "text": "WASM 擅长的场景"},
+        {"type": "table", "headers": ["场景", "原因", "Miu2D 中的例子"],
+         "rows": [
+           ["数值密集计算", "接近原生的数值运算速度", "A* 寻路的代价计算"],
+           ["位运算", "单周期完成，JS 也能但 WASM 更稳定", "位图障碍物的读写"],
+           ["大量数据遍历", "紧凑内存布局，缓存友好", "碰撞检测遍历实体"],
+           ["二进制解码", "字节级操作高效", "ASF/MPC 精灵帧解码"],
+           ["递归算法", "无栈溢出风险（独立调用栈）", "A* 路径回溯"]
+         ]},
+        {"type": "heading", "level": 3, "text": "WASM 不擅长的场景"},
+        {"type": "table", "headers": ["场景", "原因", "替代方案"],
+         "rows": [
+           ["DOM 操作", "必须通过 JS 桥接", "留在 JS"],
+           ["异步 I/O", "WASM 没有事件循环", "JS 处理网络/文件"],
+           ["频繁的 JS↔WASM 调用", "每次调用有胶水层开销", "批量调用或零拷贝"],
+           ["小数据量计算", "胶水层开销 > 计算收益", "留在 JS"],
+           ["字符串处理", "UTF-8 编码转换开销大", "尽量传递数字"]
+         ]},
+        {"type": "heading", "level": 3, "text": "调用开销的量级"},
+        {"type": "paragraph", "text": "JS↔WASM 的单次调用开销约为 1-5 微秒，主要来自类型转换和胶水层。Miu2D 通过两种策略最小化这个开销："},
+        {"type": "list", "items": [
+          "零拷贝：通过共享内存避免数据拷贝（见 W2D4）",
+          "批量调用：syncDynamicObstacles 一次调用同步所有实体，而非逐个"
+        ]},
+        {"type": "note", "text": "经验法则：如果 JS→WASM 的调用频率超过每秒 10000 次，考虑合并调用或使用零拷贝。Miu2D 的 findPath 每次移动调用一次，syncDynamicObstacles 每帧调用一次，都在合理范围内。"}
+      ]
+    },
+    {
+      "id": "D2-5-2",
+      "title": "WASM vs Compute Shader — 职责分工",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "WebGPU Compute Shader 是什么"},
+        {"type": "paragraph", "text": "WebGPU 的 Compute Shader 运行在 GPU 上，适合大规模并行计算。与 WASM（CPU 单线程）相比，它在某些场景下有数量级的性能优势，但也有明显的适用边界。"},
+        {"type": "heading", "level": 3, "text": "适用场景对比"},
+        {"type": "table", "headers": ["特性", "WASM（CPU）", "Compute Shader（GPU）"],
+         "rows": [
+           ["并行度", "单线程（或 SharedArrayBuffer 多线程）", "数千线程并行"],
+           ["数据访问", "随机访问高效", "合并访问高效，随机访问惩罚大"],
+           ["分支预测", "CPU 分支预测器高效", "warp divergence 严重降低性能"],
+           ["数据传输", "零拷贝共享内存", "CPU↔GPU 传输有延迟"],
+           ["延迟", "微秒级", "毫秒级（含调度开销）"],
+           ["适合任务", "复杂逻辑、串行算法", "大量简单计算、图像处理"]
+         ]},
+        {"type": "heading", "level": 3, "text": "Miu2D 的分工策略"},
+        {"type": "paragraph", "text": "Miu2D 引擎将不同类型的计算任务分配给最合适的位置："},
+        {"type": "table", "headers": ["任务", "执行位置", "原因"],
+         "rows": [
+           ["A* 寻路", "WASM (CPU)", "复杂分支逻辑，不适合 GPU"],
+           ["精灵帧解码", "WASM (CPU)", "串行解码，数据量不大"],
+           ["碰撞检测", "WASM (CPU)", "实体数量有限（<1000），CPU 足够"],
+           ["粒子系统", "Compute Shader (GPU)", "数万粒子并行更新"],
+           ["渲染", "Render Pipeline (GPU)", "标准 GPU 工作"],
+           ["场景图遍历", "JS (CPU)", "复杂逻辑，需要 DOM 访问"]
+         ]},
+        {"type": "heading", "level": 3, "text": "何时选择 WASM vs GPU"},
+        {"type": "code-block", "language": "text", "code": "选择 WASM 的条件：\n├── 有复杂分支（if/else 多）\n├── 数据量 < 10 万\n├── 需要随机访问\n├── 串行依赖（前一步结果影响后一步）\n└── 需要与 JS 频繁交互\n\n选择 Compute Shader 的条件：\n├── 计算高度并行（每个元素独立）\n├── 数据量 > 10 万\n├── 内存访问模式规律\n├── 无复杂分支\n└── 结果直接用于渲染"},
+        {"type": "note", "text": "Miu2D 的碰撞检测使用 WASM 而非 Compute Shader，因为游戏中的实体数量通常在几百到一千之间。对于这个规模，WASM 的单线程性能完全足够，而且避免了 CPU↔GPU 的数据传输开销。"}
+      ]
+    },
+    {
+      "id": "D2-5-3",
+      "title": "空间哈希碰撞检测",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "空间哈希网格（Spatial Hash Grid）"},
+        {"type": "paragraph", "text": "碰撞检测的朴素算法是 O(n²)——每对实体都检测一次。空间哈希将空间划分为固定大小的网格单元，只检测同一单元或相邻单元内的实体对，将复杂度降到 O(n)。"},
+        {"type": "heading", "level": 3, "text": "Miu2D 的 SpatialHash 结构"},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/collision.rs", "startLine": 19, "endLine": 28, "caption": "SpatialHash 结构体 — 网格、实体数据", "highlights": [20, 21, 22, 23, 25, 26]},
+        {"type": "table", "headers": ["字段", "类型", "作用"],
+         "rows": [
+           ["cell_size", "f32", "网格单元大小（像素）"],
+           ["grid", "HashMap<(i32,i32), Vec<u32>>", "网格坐标 → 实体 ID 列表"],
+           ["entities", "HashMap<u32, Entity>", "实体 ID → 实体数据"]
+         ]},
+        {"type": "heading", "level": 3, "text": "Entity 结构"},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/collision.rs", "startLine": 9, "endLine": 17, "caption": "Entity — 碰撞检测的实体数据", "highlights": [10, 11, 12, 13, 14, 15, 16]},
+        {"type": "paragraph", "text": "group 字段用于区分敌我阵营，在查询时可以过滤特定阵营的实体。"},
+        {"type": "heading", "level": 3, "text": "核心操作：upsert"},
+        {"type": "paragraph", "text": "upsert（update or insert）是每帧调用最频繁的操作。它将实体移动到新的网格单元："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/collision.rs", "startLine": 49, "endLine": 73, "caption": "upsert — 移动实体到新网格单元", "highlights": [50, 51, 52, 53, 54, 68, 69, 71, 72]},
+        {"type": "paragraph", "text": "流程：1) 从旧单元移除 → 2) 更新实体数据 → 3) 添加到新单元。"},
+        {"type": "heading", "level": 3, "text": "范围查询：query_radius"},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/collision.rs", "startLine": 122, "endLine": 146, "caption": "query_radius — 圆形范围查询", "highlights": [123, 124, 126, 127, 136]},
+        {"type": "paragraph", "text": "查询步骤："},
+        {"type": "list", "items": [
+          "1. 计算圆形范围覆盖的网格单元（get_cells_in_radius）",
+          "2. 遍历这些单元中的所有实体",
+          "3. 对每个实体进行精确的距离检测（考虑半径）",
+          "4. 返回距离在 radius + entity.radius 以内的实体 ID"
+        ]},
+        {"type": "heading", "level": 3, "text": "碰撞对检测：detect_all_collisions"},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/collision.rs", "startLine": 197, "endLine": 235, "caption": "detect_all_collisions — 全局碰撞检测", "highlights": [198, 199, 200, 208, 209, 212, 213]},
+        {"type": "paragraph", "text": "使用 checked HashSet 避免重复检测同一对实体。返回 [id1, id2, id3, id4, ...] 的扁平数组，每两个元素代表一对碰撞。"},
+        {"type": "note", "text": "空间哈希的关键参数是 cell_size。太小会导致大量空单元遍历，太大会导致每个单元包含太多实体。经验法则是 cell_size 设为最大实体直径的 2-4 倍。Miu2D 使用 64 像素，适合 16-32 像素的精灵。"}
+      ]
+    },
+    {
+      "id": "D2-5-4",
+      "title": "基础碰撞检测函数",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "AABB 碰撞检测"},
+        {"type": "paragraph", "text": "轴对齐包围盒（Axis-Aligned Bounding Box）是最基础的碰撞检测。Miu2D 提供了一个纯函数："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/collision.rs", "startLine": 301, "endLine": 314, "caption": "check_aabb_collision — AABB 碰撞检测", "highlights": [302, 303, 312, 313]},
+        {"type": "paragraph", "text": "AABB 检测只需 4 次比较，是最快的碰撞检测方法。通常作为其他检测的「粗筛」步骤。"},
+        {"type": "heading", "level": 3, "text": "圆形碰撞检测"},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/collision.rs", "startLine": 317, "endLine": 324, "caption": "check_circle_collision — 圆形碰撞检测", "highlights": [318, 319, 320, 323]},
+        {"type": "paragraph", "text": "圆形检测使用距离平方比较，避免了开方运算。dist_sq <= combined_radius² 是经典的圆形碰撞公式。"},
+        {"type": "heading", "level": 3, "text": "点与形状的关系"},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/collision.rs", "startLine": 327, "endLine": 338, "caption": "point_in_rect 和 point_in_circle — 点包含检测", "highlights": [328, 334]},
+        {"type": "paragraph", "text": "这两个函数常用于鼠标点击检测、技能范围判定等场景。"},
+        {"type": "heading", "level": 3, "text": "阵营过滤查询"},
+        {"type": "paragraph", "text": "Miu2D 的碰撞系统支持按阵营过滤，这在游戏逻辑中非常实用："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/collision.rs", "startLine": 156, "endLine": 193, "caption": "query_at_by_group 和 query_at_excluding_group — 阵营过滤", "highlights": [157, 177]},
+        {"type": "table", "headers": ["函数", "用途", "示例"],
+         "rows": [
+           ["query_at_by_group", "查找同阵营实体", "治疗技能只影响友方"],
+           ["query_at_excluding_group", "查找敌对阵营实体", "攻击技能只影响敌方"]
+         ]},
+        {"type": "note", "text": "Rust 的闭包 |e| e.group == group 被编译器内联，没有函数调用开销。结合空间哈希的 O(1) 网格查找，整个阵营过滤查询的时间复杂度为 O(k)，k 是该网格中的实体数。"}
+      ]
+    }
+  ],
+  "files": {
+    "packages/engine-wasm/src/collision.rs": "//! 空间碰撞检测 - 高性能 Rust 实现\n//!\n//! 使用空间哈希网格进行快速碰撞查询\n//! 适用于大量移动实体的碰撞检测场景\n\nuse hashbrown::{HashMap, HashSet};\nuse wasm_bindgen::prelude::*;\n\n/// 实体数据\n#[derive(Clone, Copy, Debug)]\nstruct Entity {\n    id: u32,\n    x: f32,\n    y: f32,\n    radius: f32,\n    group: u32,\n}\n\n/// 空间哈希网格\n#[wasm_bindgen]\npub struct SpatialHash {\n    cell_size: f32,\n    grid: HashMap<(i32, i32), Vec<u32>>,\n    entities: HashMap<u32, Entity>,\n}"
+  }
+}

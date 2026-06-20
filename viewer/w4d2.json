@@ -1,0 +1,122 @@
+{
+  "title": "W4D2: Cocos 渲染管线",
+  "chapters": [
+    {
+      "id": "D4-2-1",
+      "title": "Pipeline-Flow-Stage 三级架构",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "渲染管线的分层设计"},
+        {"type": "paragraph", "text": "Cocos Creator 的渲染管线采用三级层次结构：Pipeline（管线）→ Flow（流程）→ Stage（阶段）。这种分层设计将复杂的渲染过程拆分为可组合、可替换的模块，使得不同的渲染管线（前向、延迟、自定义）可以复用相同的 Stage 实现。"},
+        {"type": "table", "headers": ["层级", "类名", "职责", "数量关系"], "rows": [
+          ["Pipeline", "RenderPipeline", "管理全局渲染资源、驱动所有 Flow", "1 个"],
+          ["Flow", "RenderFlow", "一组按优先级排列的 Stage，处理特定渲染目标", "N 个"],
+          ["Stage", "RenderStage", "单个渲染步骤（如阴影、GBuffer、光照）", "N 个/Flow"]
+        ]},
+        {"type": "heading", "level": 3, "text": "RenderFlow 的结构"},
+        {"type": "paragraph", "text": "RenderFlow 是 Pipeline 和 Stage 之间的中间层。每个 Flow 拥有名称、优先级、标签和一组 Stage。Flow 在 activate 时按优先级对 Stage 排序，在 render 时按顺序执行所有已启用的 Stage。"},
+        {"type": "code-reference", "file": "cocos/rendering/render-flow.ts", "startLine": 46, "endLine": 96, "caption": "RenderFlow 类：管理 name、priority、tag、stages 四个核心属性", "highlights": [46, 52, 60, 77, 83, 87, 91, 94]},
+        {"type": "code-reference", "file": "cocos/rendering/render-flow.ts", "startLine": 125, "endLine": 143, "caption": "RenderFlow 的 activate 和 render 方法：按优先级排序 Stage 并依次执行", "highlights": [125, 127, 129, 139, 140, 141]},
+        {"type": "heading", "level": 3, "text": "Cocos 默认渲染管线的 Flow 布局"},
+        {"type": "code-block", "language": "typescript", "code": "// Cocos 前向渲染管线的 Flow 布局示例\n// RenderPipeline\n//   +-- ForwardFlow (priority: 0)\n//   |   +-- ShadowStage (priority: 0)      -- 渲染阴影贴图\n//   |   +-- GBufferStage (priority: 1)     -- 渲染 G-Buffer（延迟管线）\n//   |   +-- LightingStage (priority: 2)    -- 光照计算\n//   |   +-- BloomStage (priority: 3)       -- Bloom 后处理\n//   |   +-- UIPresentStage (priority: 4)   -- UI 渲染\n//   +-- UIFlow (priority: 1)\n//       +-- UIStage (priority: 0)          -- 2D UI 渲染"}
+      ]
+    },
+    {
+      "id": "D4-2-2",
+      "title": "RenderPipeline 主循环",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "管线的核心属性"},
+        {"type": "paragraph", "text": "RenderPipeline 继承自 Asset（可序列化资源），同时实现了 IPipelineEvent（事件系统）和 PipelineRuntime（运行时接口）。它管理着全局描述符集（GlobalDSManager）、管线 UBO（PipelineUBO）、管线场景数据（PipelineSceneData）以及所有 Flow。"},
+        {"type": "code-reference", "file": "cocos/rendering/render-pipeline.ts", "startLine": 117, "endLine": 155, "caption": "RenderPipeline 类定义：继承 Asset，管理 flows、tag 和全局渲染资源", "highlights": [118, 124, 133, 144, 154]},
+        {"type": "heading", "level": 3, "text": "管线的初始化和激活"},
+        {"type": "paragraph", "text": "管线的生命周期分为两步：initialize() 接收 Flow 列表并存储，activate() 在交换链就绪后初始化所有全局资源。activate 是最关键的阶段——它创建全局描述符集、激活 PipelineUBO、设置全局宏定义，然后按优先级激活所有 Flow。"},
+        {"type": "code-reference", "file": "cocos/rendering/render-pipeline.ts", "startLine": 450, "endLine": 467, "caption": "RenderPipeline.activate()：初始化全局资源并激活所有 Flow", "highlights": [450, 451, 453, 454, 455, 462, 463]},
+        {"type": "heading", "level": 3, "text": "每帧渲染主循环"},
+        {"type": "paragraph", "text": "render() 方法是管线的核心驱动函数，由 Root 每帧调用。它按以下顺序执行：开始录制命令缓冲 → 遍历所有 Camera → 对每个 Camera 执行场景剔除和 UBO 更新 → 按顺序执行所有 Flow → 结束录制并提交命令缓冲。"},
+        {"type": "code-reference", "file": "cocos/rendering/render-pipeline.ts", "startLine": 476, "endLine": 503, "caption": "RenderPipeline.render()：每帧渲染主循环，遍历 Camera 并执行所有 Flow", "highlights": [476, 481, 482, 486, 488, 490, 491, 492, 493, 494, 495, 501, 502, 503]},
+        {"type": "heading", "level": 3, "text": "RenderPass 缓存与创建"},
+        {"type": "paragraph", "text": "管线还负责管理 RenderPass 的创建和缓存。不同的清除标志（ClearFlags）和帧缓冲格式会生成不同的 RenderPass，管线通过 Hash 缓存避免重复创建。"},
+        {"type": "code-reference", "file": "cocos/rendering/render-pipeline.ts", "startLine": 293, "endLine": 336, "caption": "createRenderPass 和 getRenderPass：创建并缓存 RenderPass 对象", "highlights": [293, 295, 296, 328, 329, 330, 332, 334, 335]}
+      ]
+    },
+    {
+      "id": "D4-2-3",
+      "title": "RenderQueue 排序机制",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "渲染队列的作用"},
+        {"type": "paragraph", "text": "RenderQueue 是渲染管线中管理绘制调用的核心数据结构。它收集一帧中所有需要渲染的 Pass，按照特定规则排序，然后批量提交给 GPU。合理的排序可以减少状态切换、保证透明物体的正确渲染顺序。"},
+        {"type": "heading", "level": 3, "text": "不透明与半透明的排序策略"},
+        {"type": "paragraph", "text": "Cocos 提供了两种内置排序函数，分别用于不透明和半透明物体："},
+        {"type": "code-reference", "file": "cocos/rendering/render-queue.ts", "startLine": 36, "endLine": 46, "caption": "opaqueCompareFn 和 transparentCompareFn：不透明由前向后排序，半透明由后向前排序", "highlights": [36, 37, 44, 45]},
+        {"type": "table", "headers": ["排序策略", "排序依据", "目的"], "rows": [
+          ["不透明（Front-to-Back）", "hash → depth → shaderId", "减少 Overdraw（Early-Z 优化）"],
+          ["半透明（Back-to-Front）", "priority → hash → depth → shaderId", "保证 Alpha Blending 正确性"]
+        ]},
+        {"type": "heading", "level": 3, "text": "RenderQueue 的插入和排序"},
+        {"type": "paragraph", "text": "insertRenderPass() 方法是渲染对象进入队列的入口。它检查 Pass 的混合状态是否与队列类型匹配（不透明队列只接受不透明 Pass），然后计算排序 hash 并加入队列。"},
+        {"type": "code-reference", "file": "cocos/rendering/render-queue.ts", "startLine": 90, "endLine": 108, "caption": "insertRenderPass：检查 Pass 类型、计算排序 hash、插入队列", "highlights": [90, 91, 94, 95, 98, 99, 100, 106, 107]},
+        {"type": "heading", "level": 3, "text": "命令录制"},
+        {"type": "paragraph", "text": "排序完成后，recordCommandBuffer() 遍历队列中的每个 Pass，获取或创建 PipelineState（PSO），绑定描述符集，绑定输入汇编器，最终发出绘制命令。"},
+        {"type": "code-reference", "file": "cocos/rendering/render-queue.ts", "startLine": 118, "endLine": 131, "caption": "recordCommandBuffer：遍历队列，绑定 PSO/DescriptorSet/InputAssembler，执行绘制", "highlights": [118, 124, 125, 126, 127, 128, 129]}
+      ]
+    },
+    {
+      "id": "D4-2-4",
+      "title": "场景剔除与 UBO 更新",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "渲染前的准备工作"},
+        {"type": "paragraph", "text": "在执行 Flow 之前，RenderPipeline.render() 会为每个 Camera 执行两项关键准备工作：场景剔除（sceneCulling）和 UBO 更新（updateGlobalUBO / updateCameraUBO）。这两步决定了哪些物体会被渲染以及着色器能获取到哪些全局参数。"},
+        {"type": "code-reference", "file": "cocos/rendering/render-pipeline.ts", "startLine": 486, "endLine": 495, "caption": "每帧渲染流程：场景剔除 → UBO 更新 → 执行所有 Flow", "highlights": [490, 491, 492, 493, 494]},
+        {"type": "heading", "level": 3, "text": "场景剔除流程"},
+        {"type": "list", "items": [
+          "视锥剔除（Frustum Culling）：将模型的包围盒与摄像机视锥体做相交测试，剔除不可见物体",
+          "灯光剔除（Punctual Lights Culling）：筛选影响当前摄像机的有效灯光",
+          "阴影投射者剔除：筛选会投射阴影到当前摄像机视锥内的物体",
+          "渲染对象收集：将通过剔除的模型按材质/Pass 分类，准备插入 RenderQueue"
+        ]},
+        {"type": "heading", "level": 3, "text": "UBO 更新"},
+        {"type": "paragraph", "text": "PipelineUBO 负责管理全局 Uniform Buffer Object。它包含两类 UBO：GlobalUBO（全局参数如时间、屏幕尺寸、雾效参数）和 CameraUBO（摄像机参数如 VP 矩阵、位置、近远裁剪面）。每帧开始时更新这些 UBO，确保着色器能获取到正确的参数。"},
+        {"type": "heading", "level": 3, "text": "常量宏定义"},
+        {"type": "paragraph", "text": "管线还维护一组全局常量宏（constantMacros），这些宏在着色器编译时被注入，用于控制平台相关的行为。例如是否支持浮点纹理、是否启用 Clustered Light Culling、最大 Uniform 向量数等。"},
+        {"type": "code-reference", "file": "cocos/rendering/render-pipeline.ts", "startLine": 722, "endLine": 737, "caption": "_generateConstantMacros：生成平台相关的着色器宏定义", "highlights": [722, 724, 726, 727, 728, 729, 730, 733, 734, 736]}
+      ]
+    },
+    {
+      "id": "D4-2-5",
+      "title": "Batcher2D 深入分析",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "2D 渲染批处理器"},
+        {"type": "paragraph", "text": "Batcher2D 是 Cocos 2D 渲染的核心组件，负责将大量 2D UI 元素（Sprite、Label、Graphics 等）合并为尽可能少的绘制调用。在 2D 游戏中，Draw Call 数量直接影响性能，因此 Batcher2D 的合批策略至关重要。"},
+        {"type": "code-reference", "file": "cocos/2d/renderer/batcher-2d.ts", "startLine": 88, "endLine": 103, "caption": "Batcher2D 类：管理渲染批次、缓冲区访问器和当前渲染状态", "highlights": [88, 94, 101]},
+        {"type": "heading", "level": 3, "text": "合批的关键状态"},
+        {"type": "paragraph", "text": "Batcher2D 通过追踪当前渲染状态来判断是否可以合批。两个连续的 UI 元素只有在以下所有状态都相同时才能合入同一个批次："},
+        {"type": "code-reference", "file": "cocos/2d/renderer/batcher-2d.ts", "startLine": 125, "endLine": 138, "caption": "合批状态追踪：材质、纹理、采样器、图层、深度模板状态、Hash 等", "highlights": [127, 128, 129, 130, 135, 136, 137]},
+        {"type": "table", "headers": ["状态", "类型", "说明"], "rows": [
+          ["_currMaterial", "Material", "当前材质（包含 Effect 和 Pass）"],
+          ["_currTexture", "Texture", "当前纹理"],
+          ["_currSampler", "Sampler", "当前采样器"],
+          ["_currLayer", "number", "当前渲染图层"],
+          ["_currDepthStencilStateStage", "Stage", "当前深度模板状态（Mask 使用）"],
+          ["_currHash", "number", "当前合批 Hash 值"]
+        ]},
+        {"type": "heading", "level": 3, "text": "StaticVBAccessor：静态顶点缓冲"},
+        {"type": "paragraph", "text": "Batcher2D 使用 StaticVBAccessor 管理顶点缓冲区。它为不同格式的顶点数据（如 posUvColor）创建独立的静态顶点缓冲，避免频繁的动态缓冲分配。这种策略在 UI 元素较多时能显著减少内存分配开销。"},
+        {"type": "code-reference", "file": "cocos/2d/renderer/batcher-2d.ts", "startLine": 115, "endLine": 121, "caption": "Batcher2D 的缓冲管理：静态 VB 缓冲访问器和 DrawBatch 池", "highlights": [117, 118, 120, 121]},
+        {"type": "heading", "level": 3, "text": "合批中断的常见原因"},
+        {"type": "list", "items": [
+          "纹理切换：不同 Sprite 使用不同图集时，必须中断合批",
+          "材质切换：不同的 Effect 或 Pass 参数变化",
+          "渲染顺序：中间插入了不同层级的 UI 元素",
+          "Mask 裁剪：Stencil 模板状态变化会强制中断",
+          "深度/模板状态变化：3D UI 元素与 2D 元素混排"
+        ]},
+        {"type": "note", "text": "优化 UI 性能的第一步是减少 Draw Call，而减少 Draw Call 的关键是使用图集（Atlas）将多个 Sprite 合并到同一张纹理中，这样 Batcher2D 就能将它们合入同一个批次。"}
+      ]
+    }
+  ],
+  "files": {
+    "cocos/rendering/render-pipeline.ts": "渲染管线主类 — 管理全局资源、驱动 Flow 执行、维护 RenderPass 缓存和常量宏定义",
+    "cocos/rendering/render-flow.ts": "渲染流程类 — Pipeline 和 Stage 之间的中间层，按优先级管理 Stage 列表",
+    "cocos/rendering/render-queue.ts": "渲染队列 — 管理渲染 Pass 的收集、排序和命令录制",
+    "cocos/2d/renderer/batcher-2d.ts": "2D 批处理器 — 将 UI 元素合并为最少的绘制调用，管理合批状态和顶点缓冲"
+  }
+}

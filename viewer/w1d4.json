@@ -1,0 +1,146 @@
+{
+  "title": "W1D4: Command Encoder + 实例化渲染",
+  "chapters": [
+    {
+      "id": "D1-4-1",
+      "title": "命令录制模型 — WebGPU 的渲染架构",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "为什么需要命令缓冲区？"},
+        {"type": "paragraph", "text": "WebGPU 继承了 Vulkan/D3D12 的命令录制模型：GPU 命令不是立即执行的，而是先录制到命令缓冲区（CommandBuffer）中，然后一次性提交到 GPU 队列执行。这种设计的核心优势是："},
+        {"type": "list", "items": [
+          "CPU-GPU 并行：CPU 可以在 GPU 执行上一帧的同时录制下一帧的命令",
+          "多线程录制：多个线程可以同时录制不同的命令缓冲区",
+          "批量提交：减少 CPU-GPU 之间的同步开销",
+          "可复用：命令缓冲区可以多次提交执行"
+        ]},
+        {"type": "heading", "level": 3, "text": "WebGPU 命令录制流程"},
+        {"type": "code-block", "language": "typescript", "code": "// WebGPU 命令录制的标准流程\n// 1. 创建命令编码器\nconst encoder = device.createCommandEncoder();\n\n// 2. 开始渲染 Pass\nconst passEncoder = encoder.beginRenderPass(renderPassDescriptor);\n\n// 3. 录制渲染命令\npassEncoder.setPipeline(pipeline);\npassEncoder.setBindGroup(0, bindGroup);\npassEncoder.setVertexBuffer(0, vertexBuffer);\npassEncoder.setIndexBuffer(indexBuffer, 'uint16');\npassEncoder.drawIndexed(6, 100);  // 6个索引, 100个实例\n\n// 4. 结束渲染 Pass\npassEncoder.end();\n\n// 5. 完成命令编码\nconst commandBuffer = encoder.finish();\n\n// 6. 提交到 GPU 队列\ndevice.queue.submit([commandBuffer]);"},
+        {"type": "heading", "level": 3, "text": "Cocos 的延迟执行模型"},
+        {"type": "paragraph", "text": "Cocos 引擎在 WebGPU 后端中采用了延迟执行模型。CommandBuffer 不直接录制 WebGPU 命令，而是将命令缓存到 _renderPassFuncQueue 数组中，在 endRenderPass() 时统一执行。"},
+        {"type": "note", "text": "命令录制模型是理解 WebGPU 性能特征的关键。与 WebGL 的即时模式不同，WebGPU 的命令缓冲区允许驱动程序进行更深度的优化，如命令重排序、资源状态跟踪等。"}
+      ]
+    },
+    {
+      "id": "D1-4-2",
+      "title": "RenderPass — 渲染过程管理",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "RenderPass 的概念"},
+        {"type": "paragraph", "text": "RenderPass 是 WebGPU 中组织渲染操作的核心概念。它定义了一组渲染目标（颜色附件和深度模板附件）、清除操作和加载/存储策略。所有 draw call 必须在 RenderPass 内部执行。"},
+        {"type": "heading", "level": 3, "text": "Cocos 的 beginRenderPass 实现"},
+        {"type": "paragraph", "text": "WebGPUCommandBuffer.beginRenderPass() 方法负责配置渲染 Pass 的描述符，设置渲染目标、清除颜色和视口。"},
+        {"type": "code-reference", "file": "cocos/gfx/webgpu/webgpu-command-buffer.ts", "startLine": 234, "endLine": 313, "caption": "beginRenderPass：配置渲染 Pass 描述符，设置渲染目标和清除操作", "highlights": [234, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 294, 295, 296, 297, 298, 299, 300, 301, 302, 303, 312]},
+        {"type": "paragraph", "text": "关键实现细节："},
+        {"type": "list", "items": [
+          "渲染目标配置：遍历所有颜色附件，设置纹理视图和清除值",
+          "MSAA 处理：如果使用多采样，配置 resolveTarget 进行解析",
+          "深度模板：配置深度纹理视图、深度清除值和模板清除值",
+          "部分清除：如果渲染区域不是全屏，使用 clearRect 进行部分清除",
+          "视口和裁剪：将 setViewport 和 setScissorRect 操作加入函数队列"
+        ]},
+        {"type": "heading", "level": 3, "text": "延迟执行的函数队列"},
+        {"type": "paragraph", "text": "Cocos 使用 _renderPassFuncQueue 数组来缓存所有渲染命令。每个命令是一个接受 GPURenderPassEncoder 参数的闭包函数。在 endRenderPass() 中统一执行："},
+        {"type": "code-reference", "file": "cocos/gfx/webgpu/webgpu-command-buffer.ts", "startLine": 315, "endLine": 334, "caption": "endRenderPass：创建命令编码器，执行所有缓存的渲染命令，提交到 GPU 队列", "highlights": [315, 316, 317, 318, 319, 320, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 331, 332, 333, 334]},
+        {"type": "note", "text": "Cocos 的延迟执行模型虽然增加了一层抽象，但使得命令录制可以在不同的线程或时间点进行，为未来的多线程渲染优化预留了空间。"}
+      ]
+    },
+    {
+      "id": "D1-4-3",
+      "title": "命令绑定与绘制 — bindStates + draw",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "bindStates — 状态绑定"},
+        {"type": "paragraph", "text": "在录制 draw call 之前，需要绑定管线状态、描述符集、顶点缓冲区和索引缓冲区。bindStates() 方法负责将所有这些状态打包为渲染命令。"},
+        {"type": "code-reference", "file": "cocos/gfx/webgpu/webgpu-command-buffer.ts", "startLine": 658, "endLine": 777, "caption": "bindStates：绑定管线、描述符集、顶点缓冲区和索引缓冲区", "highlights": [658, 659, 660, 661, 662, 663, 664, 665, 666, 667, 668, 669, 670, 671, 672, 673, 674, 675, 676, 677, 678, 679, 680, 681, 682, 683, 684, 685, 686, 687, 688, 689, 690, 691, 692, 693, 694, 695, 696, 697, 698, 699, 700, 701, 702, 703, 704, 705, 706, 707, 708, 709, 710, 711, 712, 713, 714, 715, 716, 717, 718, 719, 720, 721, 722, 723, 724, 725, 726, 727, 728, 729, 730, 731, 732, 733, 734, 735, 736, 737, 738, 739, 740, 741, 742, 743, 744, 745, 746, 747, 748, 749, 750, 751, 752, 753, 754, 755, 756, 757, 758, 759, 760, 761, 762, 763, 764, 765, 766, 767, 768, 769, 770, 771, 772, 773, 774, 775, 776, 777]},
+        {"type": "heading", "level": 3, "text": "状态绑定流程"},
+        {"type": "table", "headers": ["步骤", "操作", "WebGPU 调用"],
+         "rows": [
+           ["1", "准备描述符集", "descriptorSet.prepare() 确保 bindGroup 已创建"],
+           ["2", "准备管线", "pipelineState.prepare(gpuIA) 创建原生管线"],
+           ["3", "设置管线", "passEncoder.setPipeline(wgpuPipeline)"],
+           ["4", "设置模板引用", "passEncoder.setStencilReference(stencilRef)"],
+           ["5", "设置绑定组", "passEncoder.setBindGroup(i, bindGroup, offsets)"],
+           ["6", "设置顶点缓冲区", "passEncoder.setVertexBuffer(slot, buffer, offset)"],
+           ["7", "设置索引缓冲区", "passEncoder.setIndexBuffer(buffer, type, offset, size)"],
+           ["8", "设置混合常量", "passEncoder.setBlendConstant(color)"]
+         ]},
+        {"type": "heading", "level": 3, "text": "draw / drawIndexed — 绘制命令"},
+        {"type": "paragraph", "text": "draw() 方法负责录制实际的绘制命令。它根据是否有索引缓冲区选择 drawIndexed 或 draw，并处理实例化渲染："},
+        {"type": "code-reference", "file": "cocos/gfx/webgpu/webgpu-command-buffer.ts", "startLine": 487, "endLine": 563, "caption": "draw()：绘制命令录制，支持索引绘制、实例化绘制和间接绘制", "highlights": [487, 488, 489, 490, 491, 492, 493, 494, 495, 496, 497, 498, 499, 500, 501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511, 512, 513, 514, 515, 516, 517, 518, 519, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529, 530, 531, 532, 533, 534, 535, 536, 537, 538, 539, 540, 541, 542, 543, 544, 545, 546, 547, 548, 549, 550, 551, 552, 553, 554, 555, 556, 557, 558, 559, 560, 561, 562, 563]},
+        {"type": "heading", "level": 3, "text": "绘制模式对比"},
+        {"type": "table", "headers": ["模式", "方法", "适用场景"],
+         "rows": [
+           ["顶点绘制", "draw(vertexCount, instanceCount)", "无索引缓冲区，直接按顶点顺序绘制"],
+           ["索引绘制", "drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance)", "使用索引缓冲区，减少顶点重复"],
+           ["间接绘制", "drawIndirect(buffer, offset)", "参数存储在 GPU Buffer 中，由 GPU 决定绘制数量"],
+           ["间接索引绘制", "drawIndexedIndirect(buffer, offset)", "间接绘制的索引版本"]
+         ]},
+        {"type": "note", "text": "draw() 方法中，instanceCount 默认为 1（非实例化渲染）。当 instanceCount > 1 时，GPU 会重复执行顶点着色器 instanceCount 次，每次传入不同的 instance_index。"}
+      ]
+    },
+    {
+      "id": "D1-4-4",
+      "title": "实例化渲染 — drawIndexed(6, N)",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "什么是实例化渲染？"},
+        {"type": "paragraph", "text": "实例化渲染（Instanced Rendering）是一种高效绘制大量相似对象的技术。传统方式需要为每个对象单独提交一个 draw call，而实例化渲染只需一次 draw call 就能绘制 N 个实例。每个实例可以有不同的变换矩阵、颜色等属性。"},
+        {"type": "heading", "level": 3, "text": "实例化 vs 传统绘制"},
+        {"type": "table", "headers": ["对比项", "传统绘制", "实例化渲染"],
+         "rows": [
+           ["Draw Call 数量", "N 次（N 个对象）", "1 次"],
+           ["顶点着色器调用", "N × vertexCount", "N × vertexCount（相同）"],
+           ["CPU-GPU 通信", "N 次状态切换", "1 次状态切换"],
+           ["适用场景", "少量不同对象", "大量相似对象（粒子、草地、UI 元素）"]
+         ]},
+        {"type": "heading", "level": 3, "text": "WebGPU 中的实例化"},
+        {"type": "paragraph", "text": "WebGPU 的 drawIndexed 方法签名："},
+        {"type": "code-block", "language": "typescript", "code": "// WebGPU drawIndexed 方法\npassEncoder.drawIndexed(\n    indexCount,      // 每个实例的索引数量\n    instanceCount,   // 实例数量\n    firstIndex,      // 起始索引\n    baseVertex,      // 基础顶点偏移\n    firstInstance    // 起始实例索引\n);\n\n// 2D 精灵批量渲染的典型调用\n// 6个索引（2个三角形组成一个四边形），100个实例\npassEncoder.drawIndexed(6, 100, 0, 0, 0);"},
+        {"type": "heading", "level": 3, "text": "实例属性的传递方式"},
+        {"type": "paragraph", "text": "在 WebGPU 中，实例属性通过顶点缓冲区传递。关键是在 GPUVertexBufferLayout 中设置 stepMode 为 'instance'："},
+        {"type": "code-block", "language": "typescript", "code": "// 实例属性的顶点缓冲区布局\nconst instanceBufferLayout: GPUVertexBufferLayout = {\n    arrayStride: 64,  // 每个实例的数据大小（如 mat4x4）\n    stepMode: 'instance',  // 关键：每个实例而非每个顶点更新\n    attributes: [\n        // 实例变换矩阵（4 个 vec4）\n        { format: 'float32x4', offset: 0,  shaderLocation: 1 },\n        { format: 'float32x4', offset: 16, shaderLocation: 2 },\n        { format: 'float32x4', offset: 32, shaderLocation: 3 },\n        { format: 'float32x4', offset: 48, shaderLocation: 4 },\n    ],\n};"},
+        {"type": "heading", "level": 3, "text": "Cocos 中的 stepMode 处理"},
+        {"type": "paragraph", "text": "在 WebGPUPipelineState.prepare() 中，通过 attr.isInstanced 属性判断是否为实例属性，设置对应的 stepMode："},
+        {"type": "code-block", "language": "typescript", "code": "// WebGPUPipelineState.prepare() 中的关键代码\ncurrBufferLayout.arrayStride = gpuAttr.stride;\ncurrBufferLayout.stepMode = attr.isInstanced ? 'instance' : 'vertex';"},
+        {"type": "note", "text": "实例化渲染是 2D 游戏性能优化的核心技术。Cocos 的 Batcher2D 正是利用实例化渲染将大量 UI 元素合并为少量 draw call。"}
+      ]
+    },
+    {
+      "id": "D1-4-5",
+      "title": "Cocos Batcher2D — 2D 渲染批处理",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "为什么需要 Batcher？"},
+        {"type": "paragraph", "text": "2D 游戏通常有大量 UI 元素（精灵、文字、按钮等）。如果每个元素单独提交一个 draw call，CPU 开销会非常大。Batcher2D 的作用是将材质、纹理相同的 UI 元素合并到同一批次，通过实例化渲染一次性绘制。"},
+        {"type": "heading", "level": 3, "text": "Batcher2D 核心结构"},
+        {"type": "code-reference", "file": "cocos/2d/renderer/batcher-2d.ts", "startLine": 88, "endLine": 165, "caption": "Batcher2D 类定义：管理 2D 渲染的批处理流程", "highlights": [88, 89, 94, 95, 96, 97, 98, 99, 100, 101, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165]},
+        {"type": "heading", "level": 3, "text": "批处理的核心状态"},
+        {"type": "table", "headers": ["状态", "说明", "作用"],
+         "rows": [
+           ["_currMaterial", "当前材质", "相同材质的元素才能合并"],
+           ["_currTexture / _currSampler", "当前纹理和采样器", "相同纹理的元素才能合并"],
+           ["_currTextureHash / _currSamplerHash", "纹理和采样器的哈希值", "快速比较是否相同资源"],
+           ["_currComponent", "当前 UI 组件", "当前正在处理的渲染组件"],
+           ["_currTransform", "当前变换节点", "组件所在的场景节点"],
+           ["_currRenderData", "当前渲染数据", "顶点和索引数据"],
+           ["_currStaticRoot", "静态批处理根节点", "用于静态 UI 的批处理优化"]
+         ]},
+        {"type": "heading", "level": 3, "text": "批处理流程"},
+        {"type": "list", "items": [
+          "1. 遍历所有 UIRenderer 组件，按深度排序",
+          "2. 对每个组件，检查是否可以与当前批次合并（材质、纹理相同）",
+          "3. 如果可以合并，将顶点数据追加到当前批次的缓冲区",
+          "4. 如果不能合并，提交当前批次，开始新的批次",
+          "5. 最终将所有批次提交到渲染队列"
+        ]},
+        {"type": "heading", "level": 3, "text": "StaticVBAccessor — 静态顶点缓冲区"},
+        {"type": "paragraph", "text": "Batcher2D 使用 StaticVBAccessor 管理顶点缓冲区。它预分配一大块顶点缓冲区，通过偏移量来分配子区域，避免频繁创建和销毁 GPU 缓冲区："},
+        {"type": "code-block", "language": "typescript", "code": "// StaticVBAccessor 的工作原理\n// 预分配 64KB 的顶点缓冲区\nconst accessor = new StaticVBAccessor(device, vfmtPosUvColor, 65536);\n\n// 分配子区域（返回偏移量和大小）\nconst { offset, size } = accessor.alloc(vertexCount);\n\n// 写入顶点数据\nbuffer.update(vertexData, offset);\n\n// 使用偏移量绘制\npassEncoder.drawIndexed(indexCount, 1, 0, offset / vertexStride);"},
+        {"type": "heading", "level": 3, "text": "DescriptorSetCache — 绑定组缓存"},
+        {"type": "paragraph", "text": "Batcher2D 维护了一个 DescriptorSetCache，用于缓存已创建的描述符集。相同的材质配置可以复用同一个描述符集，避免重复创建："},
+        {"type": "code-block", "language": "typescript", "code": "// DescriptorSetCache 的缓存策略\nclass DescriptorSetCache {\n    private _cache: Map<number, DescriptorSet> = new Map();\n\n    getDescriptorSet(hash: number, createFn: () => DescriptorSet): DescriptorSet {\n        if (this._cache.has(hash)) {\n            return this._cache.get(hash)!;\n        }\n        const ds = createFn();\n        this._cache.set(hash, ds);\n        return ds;\n    }\n}"},
+        {"type": "note", "text": "Batcher2D 是 Cocos 2D 渲染性能的关键。一个好的批处理策略可以将数千个 UI 元素的 draw call 数量降低到几十个，大幅提升渲染性能。"}
+      ]
+    }
+  ],
+  "files": {
+    "cocos/gfx/webgpu/webgpu-command-buffer.ts": "/*\n Copyright (c) 2024 Xiamen Yaji Software Co., Ltd.\n\n https://www.cocos.com/\n\n Permission is hereby granted, free of charge, to any person obtaining a copy\n of this software and associated documentation files (the \"Software\"), to deal\n in the Software without restriction, including without limitation the rights to\n use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies\n of the Software, and to permit persons to whom the Software is furnished to do so,\n subject to the following conditions:\n\n The above copyright notice and this permission notice shall be included in\n all copies or substantial portions of the Software.\n\n THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n THE SOFTWARE.\n*/\n\nimport { DescriptorSet } from '../base/descriptor-set';\nimport { Buffer } from '../base/buffer';\nimport { CommandBuffer } from '../base/command-buffer';\nimport {\n    BufferUsageBit,\n    CommandBufferType,\n    StencilFace,\n    BufferSource,\n    DrawInfo,\n    CommandBufferInfo,\n    BufferTextureCopy,\n    Color,\n    Rect,\n    Viewport,\n    Filter,\n    TextureBlit,\n    DescriptorSetInfo,\n    Format,\n} from '../base/define';\nimport { Framebuffer } from '../base/framebuffer';\nimport { InputAssembler } from '../base/input-assembler';\nimport { PipelineState } from '../base/pipeline-state';\nimport { Texture } from '../base/texture';\nimport { WebGPUDescriptorSet } from './webgpu-descriptor-set';\nimport { WebGPUBuffer } from './webgpu-buffer';\nimport { WebGPUCommandAllocator } from './webgpu-command-allocator';\nimport {\n    clearRect,\n    WebGPUCmd,\n    WebGPUCmdCopyBufferToTexture,\n    WebGPUCmdPackage,\n    WebGPUCmdUpdateBuffer,\n} from './webgpu-commands';\nimport { WebGPUFramebuffer } from './webgpu-framebuffer';\nimport {\n    IWebGPUGPUInputAssembler,\n    IWebGPUGPUDescriptorSet,\n    IWebGPUGPUPipelineState,\n    IWebGPUGPUPipelineLayout,\n} from './webgpu-gpu-objects';\nimport { WebGPUInputAssembler } from './webgpu-input-assembler';\nimport { WebGPUPipelineState } from './webgpu-pipeline-state';\nimport { WebGPUTexture } from './webgpu-texture';\nimport { RenderPass } from '../base/render-pass';\nimport { WebGPURenderPass } from './webgpu-render-pass';\nimport { INT_MAX } from '../../core/math/bits';\nimport { GeneralBarrier } from '../base/states/general-barrier';\nimport { TextureBarrier } from '../base/states/texture-barrier';\nimport { BufferBarrier } from '../base/states/buffer-barrier';\nimport { WebGPUDeviceManager } from './define';\nimport { WebGPUSwapchain } from './webgpu-swapchain';\nimport { WebGPUPipelineLayout } from './webgpu-pipeline-layout';\nimport { error, errorID } from '../../core';\n\nexport interface IWebGPUDepthBias {\n    constantFactor: number;\n    clamp: number;\n    slopeFactor: number;\n}\n\nexport interface IWebGPUDepthBounds {\n    minBounds: number;\n    maxBounds: number;\n}\n\nexport interface IWebGPUStencilWriteMask {\n    face: StencilFace;\n    writeMask: number;\n}\n\nexport interface IWebGPUStencilCompareMask {\n    face: StencilFace;\n    reference: number;\n    compareMask: number;\n}\n\ninterface CommandEncoder { commandEncoder: GPUCommandEncoder, renderPassEncoder: GPURenderPassEncoder }\nlet currPipelineState: WebGPUPipelineState | null = null;\nconst descriptorSets: WebGPUDescriptorSet[] = [];\nconst groupSets: number[] = [0, 1, 2];\nconst renderAreas: Rect[] = [];\nlet samples: number = 1;\nexport class WebGPUCommandBuffer extends CommandBuffer {\n    // ... (full source follows)\n}",
+    "cocos/2d/renderer/batcher-2d.ts": "/*\n Copyright (c) 2019-2023 Xiamen Yaji Software Co., Ltd.\n\n https://www.cocos.com/\n\n Permission is hereby granted, free of charge, to any person obtaining a copy\n of this software and associated documentation files (the \"Software\"), to deal\n in the Software without restriction, including without limitation the rights to\n use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies\n of the Software, and to permit persons to whom the Software is furnished to do so,\n subject to the following conditions:\n\n The above copyright notice and this permission notice shall be included in\n all copies or substantial portions of the Software.\n\n THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n THE SOFTWARE.\n*/\n\nimport { DEBUG, JSB, USE_SORTING_2D } from 'internal:constants';\nimport { Camera, Model } from '../../render-scene/scene';\nimport type { UIStaticBatch } from '../components/ui-static-batch';\nimport { Material } from '../../asset/assets/material';\nimport { RenderRoot2D, UIRenderer } from '../framework';\nimport { Texture, Device, Attribute, Sampler, DescriptorSetInfo, Buffer,\n    BufferInfo, BufferUsageBit, MemoryUsageBit, DescriptorSet, InputAssembler, deviceManager, PrimitiveMode,\n    DepthStencilState } from '../../gfx';\nimport { CachedArray, Pool, Mat4, cclegacy, assertIsTrue, assert, approx, EPSILON, RecyclePool } from '../../core';\nimport { Root } from '../../root';\nimport { Node } from '../../scene-graph';\nimport { Stage, StencilManager } from './stencil-manager';\nimport { DrawBatch2D } from './draw-batch';\nimport { ModelLocalBindings, UBOLocal, UBOLocalEnum } from '../../rendering/define';\nimport { SpriteFrame } from '../assets';\nimport { TextureBase } from '../../asset/assets/texture-base';\nimport { IBatcher } from './i-batcher';\nimport { StaticVBAccessor } from './static-vb-accessor';\nimport { getAttributeStride, vfmt, vfmtPosUvColor } from './vertex-format';\nimport { updateOpacity } from '../assembler/utils';\nimport { BaseRenderData, MeshRenderData } from './render-data';\nimport { UIMeshRenderer } from '../components/ui-mesh-renderer';\nimport { NativeBatcher2d } from './native-2d';\nimport { MeshBuffer } from './mesh-buffer';\nimport { scene } from '../../render-scene';\nimport { builtinResMgr } from '../../asset/asset-manager';\nimport { RenderingSubMesh } from '../../asset/assets';\nimport { IAssembler } from './base';\nimport { RenderEntityFillColorType } from './render-entity';\nimport type { Director } from '../../game/director';\n\n// ... (first 200 lines)"
+  }
+}

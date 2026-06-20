@@ -1,0 +1,116 @@
+{
+  "title": "W2D3: WASM 编译链路",
+  "chapters": [
+    {
+      "id": "D2-3-1",
+      "title": "wasm-bindgen — Rust 与 JS 的桥梁",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "wasm-bindgen 是什么"},
+        {"type": "paragraph", "text": "wasm-bindgen 是 Rust WASM 生态的核心工具。它在 Rust 函数/类型上添加 #[wasm_bindgen] 属性宏，自动生成 JS 绑定代码（胶水层），使得 JS 可以直接调用 Rust 函数、传递参数、获取返回值。"},
+        {"type": "paragraph", "text": "没有 wasm-bindgen，你需要手动处理 WASM 的线性内存、类型转换、函数导入导出。有了它，这些工作全部自动化。"},
+        {"type": "code-block", "language": "rust", "code": "// Rust 侧\nuse wasm_bindgen::prelude::*;\n\n#[wasm_bindgen]\npub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\n// JS 侧自动生成：\n// export function add(a, b) { return wasm.add(a, b); }"},
+        {"type": "heading", "level": 3, "text": "wasm-bindgen 的类型映射"},
+        {"type": "table", "headers": ["Rust 类型", "JS 类型", "说明"],
+         "rows": [
+           ["i32, u32", "number", "整数直接传递"],
+           ["f32, f64", "number", "浮点数直接传递"],
+           ["bool", "boolean", "布尔值直接传递"],
+           ["String", "string", "自动 UTF-8 转换"],
+           ["&str", "string", "借用字符串"],
+           ["&[u8]", "Uint8Array", "切片引用 → JS TypedArray 视图"],
+           ["Vec<u8>", "Uint8Array", "拥有所有权的 Vec → 拷贝到 JS"],
+           ["Vec<i32>", "Int32Array", "返回路径时使用"],
+           ["JsError", "Error", "自动转换为 JS 异常"]
+         ]},
+        {"type": "heading", "level": 3, "text": "#[wasm_bindgen] 在 Miu2D 中的使用"},
+        {"type": "paragraph", "text": "Miu2D 的 lib.rs 是整个 WASM 模块的入口点。它声明了所有子模块，并暴露初始化函数："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/lib.rs", "startLine": 1, "endLine": 30, "caption": "lib.rs — WASM 模块入口，#[wasm_bindgen(start)] 自动初始化", "highlights": [20, 21, 28]},
+        {"type": "paragraph", "text": "#[wasm_bindgen(start)] 标注的 init 函数会在 WASM 模块加载后自动执行，类似于 JS 的模块顶层代码。这里它设置了 panic hook，使得 Rust 的 panic 信息能在浏览器控制台中显示。"},
+        {"type": "note", "text": "wasm-bindgen 生成的胶水代码位于 pkg/ 目录中。它包含 .js 文件（JS 绑定）和 .d.ts 文件（TypeScript 类型定义），使得 TypeScript 项目可以直接获得类型提示。"}
+      ]
+    },
+    {
+      "id": "D2-3-2",
+      "title": "wasm-pack — 一键构建工具",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "wasm-pack 构建流程"},
+        {"type": "paragraph", "text": "wasm-pack 是 Rust WASM 的官方构建工具，它封装了从 Rust 源码到可加载 WASM 模块的完整流程。一条命令完成所有工作："},
+        {"type": "code-block", "language": "bash", "code": "# 构建 WASM 模块（release 模式）\nwasm-pack build --target web --release\n\n# 构建过程内部步骤：\n# 1. cargo build --target wasm32-unknown-unknown\n# 2. wasm-bindgen 生成 JS 胶水代码\n# 3. wasm-opt 优化 WASM 体积和性能\n# 4. 输出到 pkg/ 目录"},
+        {"type": "heading", "level": 3, "text": "编译目标"},
+        {"type": "paragraph", "text": "wasm-pack 支持多种构建目标，适用于不同的运行环境："},
+        {"type": "table", "headers": ["目标", "用途", "输出格式"],
+         "rows": [
+           ["--target web", "原生 ES Module 加载", "pkg/*.js + pkg/*.wasm"],
+           ["--target bundler", "Webpack/Vite 打包器", "pkg/*.js + pkg/*.wasm"],
+           ["--target nodejs", "Node.js 环境", "pkg/*.js + pkg/*.wasm"],
+           ["--target no-modules", "无模块系统（script 标签）", "pkg/*.js + pkg/*.wasm"]
+         ]},
+        {"type": "heading", "level": 3, "text": "wasm-opt 后处理"},
+        {"type": "paragraph", "text": "Cargo.toml 中的 wasm-opt 配置控制了 WASM 二进制的后处理优化："},
+        {"type": "code-reference", "file": "packages/engine-wasm/Cargo.toml", "startLine": 44, "endLine": 45, "caption": "wasm-opt 配置：最高优化级别 + SIMD 支持", "highlights": [45]},
+        {"type": "list", "items": [
+          "-O4 — 最高级别的大小和速度优化",
+          "--enable-simd — 启用 WASM SIMD 指令（128-bit 向量运算）",
+          "wasm-opt 是 Binaryen 工具链的一部分，能进一步压缩 10-30% 的体积"
+        ]},
+        {"type": "note", "text": "wasm-pack build 的产物 pkg/ 目录是一个合法的 npm 包，包含 package.json。Miu2D 通过 npm workspace 引用 @miu2d/engine-wasm 包，Vite 会自动处理 .wasm 文件的加载。"}
+      ]
+    },
+    {
+      "id": "D2-3-3",
+      "title": "Miu2D 的 6 个 Rust 模块",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "模块架构总览"},
+        {"type": "paragraph", "text": "Miu2D 的 WASM 模块由 6 个子模块组成，每个负责一类计算密集型任务。lib.rs 作为入口点，声明并导出所有模块："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/lib.rs", "startLine": 11, "endLine": 16, "caption": "6 个子模块声明", "highlights": [11, 12, 13, 14, 15, 16]},
+        {"type": "table", "headers": ["模块", "文件", "功能", "JS 调用频率"],
+         "rows": [
+           ["pathfinder", "pathfinder.rs", "A* 寻路算法（5 种策略）", "每次移动时调用"],
+           ["asf_decoder", "asf_decoder.rs", "ASF 精灵帧解码（RLE 解压）", "资源加载时"],
+           ["mpc_decoder", "mpc_decoder.rs", "MPC 精灵帧解码（RLE 解压）", "资源加载时"],
+           ["collision", "collision.rs", "空间哈希碰撞检测", "每帧调用"],
+           ["ai_search", "ai_search.rs", "AI 目标搜索（SoA 架构）", "每帧调用"],
+           ["msf_codec", "msf_codec.rs", "MSF 精灵帧编解码", "资源加载时"]
+         ]},
+        {"type": "heading", "level": 3, "text": "工具函数"},
+        {"type": "paragraph", "text": "lib.rs 还暴露了版本查询和 Zstd 解压两个工具函数："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/lib.rs", "startLine": 27, "endLine": 45, "caption": "version() 和 zstd_decompress() — 工具函数", "highlights": [28, 34]},
+        {"type": "paragraph", "text": "zstd_decompress 使用纯 Rust 实现的 ruzstd 库，避免了 C 依赖。这对于 WASM 环境至关重要——C 依赖需要 Emscripten 编译工具链，而纯 Rust 只需 wasm-pack。"},
+        {"type": "heading", "level": 3, "text": "模块依赖关系"},
+        {"type": "code-block", "language": "text", "code": "lib.rs (入口)\n├── pathfinder.rs   ← 独立模块\n├── asf_decoder.rs  ← 独立模块\n├── mpc_decoder.rs  ← 独立模块\n├── collision.rs    ← 独立模块\n├── ai_search.rs    ← 独立模块\n└── msf_codec.rs    ← 独立模块\n\n所有模块共享：\n├── wasm-bindgen（JS 绑定）\n├── hashbrown（高性能哈希）\n└── console_error_panic_hook（调试）"},
+        {"type": "note", "text": "6 个模块之间没有相互依赖，它们被编译到同一个 .wasm 文件中，但各自独立。这种设计使得每个模块可以单独测试，也可以在 JS 侧按需初始化。"}
+      ]
+    },
+    {
+      "id": "D2-3-4",
+      "title": "#[wasm_bindgen] 深入 — 属性宏的工作原理",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "属性宏（Attribute Macro）"},
+        {"type": "paragraph", "text": "#[wasm_bindgen] 是一个过程宏（procedural macro），它在编译时对标注的代码进行语法树变换。根据标注的目标不同（函数、结构体、枚举、impl 块），它会生成不同的绑定代码。"},
+        {"type": "heading", "level": 3, "text": "函数绑定"},
+        {"type": "paragraph", "text": "标注函数时，wasm-bindgen 生成 WASM 导出函数 + JS 包装函数："},
+        {"type": "code-block", "language": "rust", "code": "// Rust 源码\n#[wasm_bindgen]\npub fn version() -> String {\n    env!(\"CARGO_PKG_VERSION\").to_string()\n}\n\n// wasm-bindgen 生成的 WASM 导出：\n// (func $version (export \"version\") (result i32) ...)\n\n// wasm-bindgen 生成的 JS 包装：\n// export function version() {\n//   const ret = wasm.version();\n//   return takeObject(ret);\n// }"},
+        {"type": "heading", "level": 3, "text": "结构体绑定"},
+        {"type": "paragraph", "text": "标注结构体时，wasm-bindgen 会导出构造器和所有 pub 方法。PathFinder 的结构体绑定展示了这一模式："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 95, "endLine": 125, "caption": "PathFinder 结构体 — #[wasm_bindgen] 导出到 JS", "highlights": [95, 112, 115, 116]},
+        {"type": "paragraph", "text": "#[wasm_bindgen(constructor)] 标注的 new 方法对应 JS 的 new PathFinder(width, height)。结构体实例在 JS 侧表现为一个不透明的指针，所有方法调用都通过 wasm-bindgen 的引用计数机制管理。"},
+        {"type": "heading", "level": 3, "text": "impl 块绑定"},
+        {"type": "paragraph", "text": "impl 块内的 pub 方法会被自动导出。私有方法（无 pub）不会暴露给 JS："},
+        {"type": "table", "headers": ["方法", "可见性", "JS 可调用", "说明"],
+         "rows": [
+           ["new", "pub + constructor", "是", "new PathFinder(w, h)"],
+           ["set_obstacle", "pub", "是", "pf.set_obstacle(x, y, is, hard)"],
+           ["is_obstacle", "私有", "否", "Rust 内部使用"],
+           ["find_path", "pub", "是", "pf.find_path(...)"],
+           ["dynamic_bitmap_ptr", "pub", "是", "返回内存指针（零拷贝）"],
+           ["bitmap_byte_size", "pub", "是", "返回位图字节大小"]
+         ]},
+        {"type": "note", "text": "wasm-bindgen 生成的 JS 类型定义位于 pkg/*.d.ts 中。Miu2D 的 wasm-manager.ts 中的 WasmModule 接口就是基于这些生成的类型手动编写的，提供了更好的类型安全。"}
+      ]
+    }
+  ],
+  "files": {
+    "packages/engine-wasm/src/lib.rs": "//! Miu2D Engine WASM - 高性能 WebAssembly 模块\n//!\n//! 为 Miu2D 游戏引擎提供计算密集型功能的 Rust 实现：\n//! - A* 寻路算法\n//! - ASF 精灵帧解码 (RLE 解压)\n//! - MPC 精灵帧解码 (RLE 解压)\n//! - 空间碰撞检测\n\nuse wasm_bindgen::prelude::*;\n\npub mod asf_decoder;\npub mod ai_search;\npub mod collision;\npub mod mpc_decoder;\npub mod msf_codec;\npub mod pathfinder;\n\n/// 初始化 WASM 模块\n#[wasm_bindgen(start)]\npub fn init() {\n    #[cfg(feature = \"console_error_panic_hook\")]\n    console_error_panic_hook::set_once();\n}\n\n/// 获取 WASM 模块版本\n#[wasm_bindgen]\npub fn version() -> String {\n    env!(\"CARGO_PKG_VERSION\").to_string()\n}\n\n/// Zstd 解压（暴露给 JS，用于 MMF 地图格式解压）\n#[wasm_bindgen]\npub fn zstd_decompress(data: &[u8]) -> Result<Vec<u8>, JsError> {\n    use ruzstd::StreamingDecoder;\n    use std::io::Read;\n\n    let mut decoder =\n        StreamingDecoder::new(data).map_err(|e| JsError::new(&format!(\"zstd init error: {e}\")))?;\n    let mut result = Vec::new();\n    decoder\n        .read_to_end(&mut result)\n        .map_err(|e| JsError::new(&format!(\"zstd decompress error: {e}\")))?;\n    Ok(result)\n}",
+    "packages/engine-wasm/Cargo.toml": "[package]\nname = \"miu2d-engine-wasm\"\nversion = \"0.1.0\"\nedition = \"2021\"\nauthors = [\"Miu2D Team\"]\ndescription = \"High-performance WASM modules for Miu2D game engine\"\nlicense = \"MIT\"\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[features]\ndefault = [\"console_error_panic_hook\"]\n\n[dependencies]\nwasm-bindgen = \"0.2\"\njs-sys = \"0.3\"\nconsole_error_panic_hook = { version = \"0.1\", optional = true }\nhashbrown = \"0.14\"\nweb-sys = { version = \"0.3\", features = [\"console\", \"Performance\"] }\nruzstd = \"0.7\"\n\n[dev-dependencies]\nwasm-bindgen-test = \"0.3\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n\n[package.metadata.wasm-pack.profile.release]\nwasm-opt = [\"-O4\", \"--enable-simd\"]\n"
+  }
+}

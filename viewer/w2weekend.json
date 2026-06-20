@@ -1,0 +1,102 @@
+{
+  "title": "W2 周末: Rust→WASM→JS 实战 Demo",
+  "chapters": [
+    {
+      "id": "D2-W-1",
+      "title": "环境搭建 — Rust + wasm-pack 工具链",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "安装 Rust 工具链"},
+        {"type": "paragraph", "text": "在开始之前，需要安装 Rust 编译器和 WASM 构建工具。整个工具链包括三部分：Rust 编译器（rustup）、WASM 编译目标（wasm32-unknown-unknown）、构建工具（wasm-pack）。"},
+        {"type": "code-block", "language": "bash", "code": "# 1. 安装 Rust（如果尚未安装）\ncurl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\n\n# 2. 添加 WASM 编译目标\nrustup target add wasm32-unknown-unknown\n\n# 3. 安装 wasm-pack\n\ncurl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh\n\n# 4. 验证安装\nrustc --version        # rustc 1.xx.x\nwasm-pack --version    # wasm-pack 0.12.x"},
+        {"type": "heading", "level": 3, "text": "可选：安装 wasm-opt"},
+        {"type": "paragraph", "text": "wasm-opt 是 Binaryen 工具链的一部分，用于优化 WASM 二进制体积。wasm-pack 会自动调用它，但有时需要手动安装："},
+        {"type": "code-block", "language": "bash", "code": "# macOS\nbrew install binaryen\n\n# Ubuntu/Debian\nsudo apt install binaryen\n\n# 验证\nwasm-opt --version"},
+        {"type": "note", "text": "wasm-opt -O4 --enable-simd 可以将 WASM 体积压缩 10-30%，并启用 SIMD 指令加速。Miu2D 的 Cargo.toml 已配置此选项。"}
+      ]
+    },
+    {
+      "id": "D2-W-2",
+      "title": "最小 Rust→WASM Demo",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "创建 Rust 库项目"},
+        {"type": "paragraph", "text": "我们创建一个最小的 Rust WASM 项目，实现一个简单的加法函数和一个 A* 寻路的简化版本。"},
+        {"type": "code-block", "language": "bash", "code": "# 创建新项目\nmkdir wasm-demo && cd wasm-demo\ncargo init --lib"},
+        {"type": "heading", "level": 3, "text": "配置 Cargo.toml"},
+        {"type": "code-block", "language": "toml", "code": "[package]\nname = \"wasm-demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nwasm-bindgen = \"0.2\"\n\n[profile.release]\nopt-level = 3\nlto = true\npanic = \"abort\""},
+        {"type": "heading", "level": 3, "text": "编写 Rust 代码"},
+        {"type": "paragraph", "text": "src/lib.rs 中实现两个函数：一个简单的加法，一个演示所有权和借用的字符串处理。"},
+        {"type": "code-block", "language": "rust", "code": "use wasm_bindgen::prelude::*;\n\n/// 简单加法 — 演示基本类型映射\n#[wasm_bindgen]\npub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\n/// 斐波那契 — 演示递归和数值计算\n#[wasm_bindgen]\npub fn fibonacci(n: u32) -> u64 {\n    match n {\n        0 => 0,\n        1 => 1,\n        _ => {\n            let mut a: u64 = 0;\n            let mut b: u64 = 1;\n            for _ in 2..=n {\n                let temp = a + b;\n                a = b;\n                b = temp;\n            }\n            b\n        }\n    }\n}\n\n/// 数组求和 — 演示切片引用（零拷贝）\n#[wasm_bindgen]\npub fn sum_array(data: &[f64]) -> f64 {\n    data.iter().sum()\n}\n\n/// 初始化（设置 panic hook）\n#[wasm_bindgen(start)]\npub fn init() {\n    console_error_panic_hook::set_once();\n}"},
+        {"type": "heading", "level": 3, "text": "构建 WASM 模块"},
+        {"type": "code-block", "language": "bash", "code": "# 构建（target web 用于原生 ES Module 加载）\nwasm-pack build --target web --release\n\n# 产物目录 pkg/ 包含：\n# ├── wasm_demo.js        # JS 绑定\n# ├── wasm_demo.d.ts      # TypeScript 类型\n# ├── wasm_demo_bg.wasm   # WASM 二进制\n# └── package.json        # npm 包配置"},
+        {"type": "heading", "level": 3, "text": "在 HTML 中加载"},
+        {"type": "code-block", "language": "html", "code": "<!DOCTYPE html>\n<html>\n<body>\n  <script type=\"module\">\n    import init, { add, fibonacci, sum_array } from './pkg/wasm_demo.js';\n\n    async function main() {\n      await init(); // 加载并初始化 WASM\n\n      console.log('add(3, 4) =', add(3, 4));           // 7\n      console.log('fibonacci(40) =', fibonacci(40));    // 102334155\n\n      // 演示零拷贝：JS TypedArray 直接传递给 Rust\n      const data = new Float64Array([1.1, 2.2, 3.3, 4.4, 5.5]);\n      console.log('sum =', sum_array(data));            // 16.5\n    }\n\n    main();\n  </script>\n</body>\n</html>"},
+        {"type": "note", "text": "sum_array 接收 &[f64]（切片引用），wasm-bindgen 会自动将 JS 的 Float64Array 映射为 Rust 切片，无需拷贝数据。这是 WASM 零拷贝的最简单示例。"}
+      ]
+    },
+    {
+      "id": "D2-W-3",
+      "title": "性能对比 — WASM vs JS",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "基准测试设计"},
+        {"type": "paragraph", "text": "我们设计三个测试来对比 WASM 和 JS 的性能差异，覆盖不同的计算模式："},
+        {"type": "table", "headers": ["测试", "计算模式", "预期结果"],
+         "rows": [
+           ["斐波那契(45)", "纯数值迭代", "WASM 快 2-5x"],
+           ["数组求和(100万元素)", "大数组遍历", "WASM 快 1-2x"],
+           ["冒泡排序(10000元素)", "复杂比较和交换", "WASM 快 3-10x"]
+         ]},
+        {"type": "heading", "level": 3, "text": "JS 实现"},
+        {"type": "code-block", "language": "javascript", "code": "// JS 版本的斐波那契\nfunction jsFibonacci(n) {\n    let a = 0, b = 1;\n    for (let i = 2; i <= n; i++) {\n        [a, b] = [b, a + b];\n    }\n    return b;\n}\n\n// JS 版本的数组求和\nfunction jsSumArray(data) {\n    let sum = 0;\n    for (let i = 0; i < data.length; i++) {\n        sum += data[i];\n    }\n    return sum;\n}"},
+        {"type": "heading", "level": 3, "text": "基准测试代码"},
+        {"type": "code-block", "language": "javascript", "code": "async function benchmark() {\n    await init();\n\n    // 测试 1: 斐波那契\n    const N = 45;\n    const iterations = 100;\n\n    let start = performance.now();\n    for (let i = 0; i < iterations; i++) jsFibonacci(N);\n    const jsTime = performance.now() - start;\n\n    start = performance.now();\n    for (let i = 0; i < iterations; i++) fibonacci(N);\n    const wasmTime = performance.now() - start;\n\n    console.log(`Fibonacci(${N}) x${iterations}:`);\n    console.log(`  JS:   ${jsTime.toFixed(2)}ms`);\n    console.log(`  WASM: ${wasmTime.toFixed(2)}ms`);\n    console.log(`  加速比: ${(jsTime / wasmTime).toFixed(1)}x`);\n\n    // 测试 2: 数组求和\n    const arr = new Float64Array(1_000_000);\n    for (let i = 0; i < arr.length; i++) arr[i] = Math.random();\n\n    start = performance.now();\n    for (let i = 0; i < 100; i++) jsSumArray(arr);\n    const jsTime2 = performance.now() - start;\n\n    start = performance.now();\n    for (let i = 0; i < 100; i++) sum_array(arr);\n    const wasmTime2 = performance.now() - start;\n\n    console.log(`\\nArray sum (1M elements) x100:`);\n    console.log(`  JS:   ${jsTime2.toFixed(2)}ms`);\n    console.log(`  WASM: ${wasmTime2.toFixed(2)}ms`);\n    console.log(`  加速比: ${(jsTime2 / wasmTime2).toFixed(1)}x`);\n}"},
+        {"type": "heading", "level": 3, "text": "预期结果分析"},
+        {"type": "paragraph", "text": "在现代浏览器（Chrome 120+）中，典型结果如下："},
+        {"type": "table", "headers": ["测试", "JS 时间", "WASM 时间", "加速比"],
+         "rows": [
+           ["Fibonacci(45) x100", "~120ms", "~25ms", "~5x"],
+           ["Array sum (1M) x100", "~80ms", "~40ms", "~2x"],
+           ["Bubble sort (10K) x10", "~500ms", "~80ms", "~6x"]
+         ]},
+        {"type": "paragraph", "text": "为什么加速比差异这么大？"},
+        {"type": "list", "items": [
+          "斐波那契：纯整数运算，WASM 的整数指令效率远高于 JS 的 Number（f64）",
+          "数组求和：瓶颈在内存带宽而非计算，JS 的 TypedArray 已经很高效",
+          "冒泡排序：大量比较和交换，WASM 的内存访问模式更可控"
+        ]},
+        {"type": "note", "text": "V8 引擎对 TypedArray 的操作已经做了大量优化（TurboFan 编译器），所以纯数组遍历的差距不大。但涉及复杂逻辑（分支、递归、位运算）时，WASM 的优势就很明显。Miu2D 选择用 WASM 做寻路和碰撞检测，正是基于这个判断。"}
+      ]
+    },
+    {
+      "id": "D2-W-4",
+      "title": "Miu2D 中的真实应用 — 从 Demo 到引擎",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "从 Demo 到生产代码"},
+        {"type": "paragraph", "text": "上面的 Demo 展示了 WASM 的基本能力。Miu2D 的实际应用在这些基础上增加了三个关键优化："},
+        {"type": "table", "headers": ["优化", "Demo 中的做法", "Miu2D 的做法"],
+         "rows": [
+           ["数据传递", "每次调用传参", "零拷贝共享内存"],
+           ["内存管理", "每次创建新 Vec", "复用 PathFinder 实例"],
+           ["错误处理", "无", "Result + JsError 映射"]
+         ]},
+        {"type": "heading", "level": 3, "text": "Miu2D 的初始化流程"},
+        {"type": "paragraph", "text": "Miu2D 的 WASM 模块加载是一个多阶段过程："},
+        {"type": "code-block", "language": "text", "code": "应用启动\n├── initWasm()                    // 加载 WASM 二进制\n│   ├── import(\"@miu2d/engine-wasm\")  // Vite 动态导入\n│   ├── wasm.default()            // 初始化 WASM 实例\n│   └── 注册 zstd 解压器\n│\n├── 地图加载\n│   ├── initWasmPathfinder(w, h)  // 创建 PathFinder 实例\n│   ├── syncStaticObstacles(...)  // 写入静态障碍物位图\n│   └── 创建共享内存视图\n│\n└── 游戏循环（每帧）\n    ├── syncDynamicObstacles(...) // 更新动态障碍物\n    ├── findPathWasm(...)         // 寻路\n    └── SpatialHash.query_radius() // 碰撞检测"},
+        {"type": "heading", "level": 3, "text": "性能监控"},
+        {"type": "paragraph", "text": "Miu2D 的 pathfinder.rs 包含了内置的性能基准测试："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 1066, "endLine": 1096, "caption": "benchmark_pathfinding — 内置性能测试", "highlights": [1067, 1070, 1078, 1081, 1087]},
+        {"type": "paragraph", "text": "这个基准测试在 100x100 的地图上，添加 200 个随机障碍物，运行 300 次寻路（3 个路径 x 100 次迭代）。在 WASM release 模式下，单次寻路的平均耗时约为 0.01-0.05ms。"},
+        {"type": "heading", "level": 3, "text": "Week 2 总结"},
+        {"type": "list", "items": [
+          "Rust 的所有权系统在编译期保证内存安全，无需垃圾回收器",
+          "wasm-bindgen + wasm-pack 将 Rust 代码编译为浏览器可用的 WASM 模块",
+          "零拷贝共享内存是 JS↔WASM 高性能通信的关键",
+          "WASM 擅长数值密集计算，不适合 DOM 操作和小数据量任务",
+          "空间哈希网格将碰撞检测从 O(n²) 降到 O(n)",
+          "Miu2D 的 6 个 Rust 模块覆盖了寻路、解码、碰撞、AI 搜索等核心功能"
+        ]},
+        {"type": "note", "text": "Week 2 的核心收获：理解了 Rust→WASM→JS 的完整链路。从 Cargo.toml 配置，到 wasm-pack 构建，到 JS 侧的零拷贝桥接，每一步都有明确的技术选型理由。这些知识将帮助你在自己的项目中正确使用 WASM。"}
+      ]
+    }
+  ],
+  "files": {}
+}

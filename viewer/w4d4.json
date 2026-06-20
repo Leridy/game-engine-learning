@@ -1,0 +1,113 @@
+{
+  "title": "W4D4: 游戏编辑器与脚本系统",
+  "chapters": [
+    {
+      "id": "D4-4-1",
+      "title": "游戏编辑器的架构设计",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "编辑器的核心面板"},
+        {"type": "paragraph", "text": "现代游戏编辑器（Unity、Godot、Cocos Creator）都遵循类似的面板布局。虽然外观不同，但核心功能模块是一致的。理解这些模块的设计思想，对于自研编辑器至关重要。"},
+        {"type": "table", "headers": ["面板", "Unity 名称", "Godot 名称", "Cocos 名称", "核心职责"], "rows": [
+          ["场景视图", "Scene View", "2D/3D Viewport", "Scene Editor", "可视化编辑场景中的节点和组件"],
+          ["层级树", "Hierarchy", "Scene Tree", "Node Tree", "显示场景中所有节点的父子层级关系"],
+          ["属性检查器", "Inspector", "Inspector", "Inspector", "编辑选中节点/组件的属性"],
+          ["资源管理器", "Project", "FileSystem", "Assets", "浏览和管理项目中的所有资源文件"],
+          ["控制台", "Console", "Output", "Console", "显示日志、警告和错误信息"],
+          ["游戏预览", "Game View", "Game", "Preview", "运行时预览游戏画面"]
+        ]},
+        {"type": "heading", "level": 3, "text": "编辑器的核心交互模式"},
+        {"type": "list", "items": [
+          "选择（Selection）：在场景视图或层级树中点击选择节点，Inspector 显示其属性",
+          "拖拽（Drag & Drop）：将资源从资源管理器拖到场景视图中创建节点",
+          "变换操作（Transform）：在场景视图中移动、旋转、缩放节点",
+          "属性编辑（Property Edit）：在 Inspector 中修改组件属性，实时反映到场景",
+          "撤销/重做（Undo/Redo）：所有编辑操作都可以撤销"
+        ]},
+        {"type": "heading", "level": 3, "text": "编辑器与引擎的通信模型"},
+        {"type": "paragraph", "text": "编辑器和引擎运行时之间存在明确的边界。编辑器负责场景数据的编辑和序列化，引擎负责运行时的渲染和逻辑执行。两者通过序列化场景文件（.scene/.prefab）进行数据交换。"},
+        {"type": "code-block", "language": "typescript", "code": "// 编辑器与引擎的关系模型\n//\n//  编辑器进程 (Electron / Node.js)\n//  +---------------------------+\n//  |  Scene Editor (Canvas)    |\n//  |  Inspector (UI Framework) |\n//  |  Hierarchy (UI Framework) |\n//  |  Asset Manager (FS)       |\n//  +---------------------------+\n//            |  序列化场景文件 (.scene/.prefab)\n//            v\n//  引擎运行时进程 (WebGL Canvas)\n//  +---------------------------+\n//  |  ECS / Scene Graph        |\n//  |  Render Pipeline          |\n//  |  Animation System         |\n//  |  Physics Engine           |\n//  +---------------------------+"}
+      ]
+    },
+    {
+      "id": "D4-4-2",
+      "title": "三大引擎的编辑器对比",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Unity 的编辑器架构"},
+        {"type": "paragraph", "text": "Unity 使用 IMGUI（Immediate Mode GUI）构建编辑器界面。每个面板都是一个 C# 类，继承自 EditorWindow。Inspector 通过反射（Reflection）自动为组件属性生成编辑界面，开发者也可以自定义 PropertyDrawer 和 CustomEditor。Unity 的编辑器和运行时共享同一个进程，但编辑器使用 .NET Mono 运行时，运行时使用 IL2CPP。"},
+        {"type": "heading", "level": 3, "text": "Godot 的编辑器架构"},
+        {"type": "paragraph", "text": "Godot 的编辑器本身就是一个 Godot 应用——它用 Godot 引擎的 UI 系统（Control 节点）构建所有面板。这意味着编辑器的开发和游戏开发使用相同的工具链。Godot 使用 GDScript 构建编辑器插件，降低了扩展门槛。"},
+        {"type": "heading", "level": 3, "text": "Cocos Creator 的编辑器架构"},
+        {"type": "paragraph", "text": "Cocos Creator 基于 Electron 构建，编辑器 UI 使用 Vue.js 框架。场景编辑器在 WebGL Canvas 中运行一个轻量级的引擎实例进行可视化编辑，面板之间通过 Electron 的 IPC 通信。TypeScript 是编辑器和引擎的统一开发语言。"},
+        {"type": "table", "headers": ["特性", "Unity", "Godot", "Cocos Creator"], "rows": [
+          ["UI 框架", "IMGUI / UI Toolkit", "Control 节点系统", "Vue.js + Electron"],
+          ["脚本语言", "C#", "GDScript / C# / C++", "TypeScript"],
+          ["插件系统", "EditorWindow + Attribute", "EditorPlugin + Tool", "Extension + Plugin"],
+          ["编辑器进程", "原生 C++ / C#", "引擎自身", "Electron (Node.js)"],
+          ["场景序列化", "YAML / Binary", ".tscn (Text) / .scn (Binary)", ".scene / .prefab (JSON)"]
+        ]},
+        {"type": "note", "text": "自研编辑器时，最重要的是先设计好数据模型（Scene/Node/Component 的序列化格式），然后再考虑 UI 框架。数据模型决定了编辑器能做什么，UI 框架只影响开发效率。"}
+      ]
+    },
+    {
+      "id": "D4-4-3",
+      "title": "脚本系统：DSL vs 通用语言",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "游戏脚本系统的分类"},
+        {"type": "paragraph", "text": "游戏引擎的脚本系统可以分为两大类：DSL（Domain-Specific Language，领域特定语言）和通用编程语言嵌入。DSL 针对特定游戏逻辑设计，语法简单但表达力有限；通用语言（如 Lua、Python、JavaScript）功能强大但学习曲线较陡。"},
+        {"type": "table", "headers": ["类型", "代表", "优势", "劣势"], "rows": [
+          ["DSL（事件脚本）", "RPG Maker 事件、Galgame 脚本", "非程序员可使用、可视化编辑", "表达力有限、难以扩展"],
+          ["DSL（自定义语法）", "JxqyHD 脚本、Ren'Py", "针对特定游戏类型优化", "需要自研解析器和调试器"],
+          ["嵌入式语言", "Lua（魔兽/WOW）、Python", "功能强大、社区成熟", "性能开销、跨语言绑定复杂"],
+          ["引擎原生语言", "C#（Unity）、GDScript（Godot）", "深度集成、调试方便", "绑定在特定引擎上"]
+        ]},
+        {"type": "heading", "level": 3, "text": "DSL 脚本的典型结构"},
+        {"type": "paragraph", "text": "经典的 RPG 游戏脚本通常采用行格式的 DSL，每行一个命令，支持标签跳转、条件判断和变量操作。这种设计的优势是解析简单、易于可视化编辑，劣势是缺乏结构化编程能力（无函数、无循环、无模块化）。"},
+        {"type": "code-block", "language": "plaintext", "code": ";\n; DSL 脚本示例：NPC 对话和战斗\n;\n@Main:\n  Say(1001, \"你好，旅行者！\")\n  Choose(\"接受任务\", \"拒绝\", result)\n  If(result, 0, @Accept)\n  If(result, 1, @Reject)\n\n@Accept:\n  Say(1002, \"太好了！去消灭 10 只史莱姆吧。\")\n  AddMission(\"kill_slime_10\")\n  EndScript()\n\n@Reject:\n  Say(1003, \"真遗憾，下次再来吧。\")\n  EndScript()"}
+      ]
+    },
+    {
+      "id": "D4-4-4",
+      "title": "miu2d 的双脚本模型",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "miu2d 的脚本架构"},
+        {"type": "paragraph", "text": "miu2d 采用了一种独特的双脚本模型：自定义 DSL 脚本用于游戏剧情和事件逻辑，Lua 脚本用于复杂的游戏机制和 AI。两者共享同一个 GameAPI 接口，确保了功能的一致性。这种设计既保留了 DSL 的易用性，又通过 Lua 获得了完整的编程能力。"},
+        {"type": "heading", "level": 3, "text": "ScriptExecutor：DSL 脚本执行器"},
+        {"type": "paragraph", "text": "ScriptExecutor 是 DSL 脚本的核心执行引擎。它维护脚本状态（当前脚本、当前行、调用栈），通过命令注册表（CommandRegistry）分发命令到对应的处理器，支持阻塞操作（如对话框、移动）通过 BlockingResolver 实现异步等待。"},
+        {"type": "code-reference", "file": "miu2d/packages/engine/src/script/executor.ts", "startLine": 172, "endLine": 200, "caption": "ScriptExecutor 类：管理脚本状态、命令注册表和阻塞解析器", "highlights": [172, 173, 176, 177, 178, 181, 184, 185, 187, 188, 191]},
+        {"type": "heading", "level": 3, "text": "execute() 主循环"},
+        {"type": "paragraph", "text": "execute 方法是脚本执行的核心循环。它逐行读取脚本命令，跳过标签行，调用 executeCommand 分发到对应的命令处理器。当遇到阻塞命令（如对话框）时，await 会使循环暂停，直到 BlockingResolver 在 update() 中解析阻塞条件。"},
+        {"type": "code-reference", "file": "miu2d/packages/engine/src/script/executor.ts", "startLine": 339, "endLine": 378, "caption": "execute()：脚本执行主循环，逐行执行命令并支持异步阻塞", "highlights": [339, 340, 345, 352, 355, 366, 367, 368, 371]},
+        {"type": "heading", "level": 3, "text": "调用栈与脚本嵌套"},
+        {"type": "paragraph", "text": "ScriptExecutor 支持脚本嵌套执行——当一个脚本通过 RunScript 调用另一个脚本时，当前脚本的状态会被压入 callStack，新脚本执行完毕后自动恢复父脚本。这与程序语言的函数调用栈机制完全一致。"},
+        {"type": "code-reference", "file": "miu2d/packages/engine/src/script/executor.ts", "startLine": 439, "endLine": 456, "caption": "endScript()：脚本结束时从 callStack 恢复父脚本", "highlights": [439, 441, 443, 444, 446, 449, 451, 452, 453, 454, 455]},
+        {"type": "heading", "level": 3, "text": "并行脚本系统"},
+        {"type": "paragraph", "text": "miu2d 还支持并行脚本——在主脚本执行的同时运行独立的后台脚本。典型用例包括延迟触发事件、循环检查条件、定时器等。并行脚本分为延迟启动和立即启动两种，每帧通过 update 方法驱动执行。"},
+        {"type": "code-reference", "file": "miu2d/packages/engine/src/script/executor.ts", "startLine": 44, "endLine": 56, "caption": "ParallelScriptRunner：并行脚本运行器，独立于主脚本执行", "highlights": [44, 45, 46, 47, 48, 49, 50, 52, 53, 55]},
+        {"type": "code-reference", "file": "miu2d/packages/engine/src/script/executor.ts", "startLine": 565, "endLine": 581, "caption": "runParallelScript：启动并行脚本，支持延迟执行", "highlights": [565, 566, 567, 568, 572, 573, 574, 576]}
+      ]
+    },
+    {
+      "id": "D4-4-5",
+      "title": "GameAPI：统一的游戏功能接口",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "GameAPI 的设计哲学"},
+        {"type": "paragraph", "text": "GameAPI 是 miu2d 脚本系统的统一功能接口。它将所有游戏功能按领域划分为子接口（player、npc、goods、magic 等），阻塞操作返回 Promise，DSL 脚本和 Lua 脚本共享同一套 API。这种设计确保了不同脚本引擎之间的功能一致性。"},
+        {"type": "code-reference", "file": "miu2d/packages/engine/src/script/api/game-api.ts", "startLine": 19, "endLine": 36, "caption": "GameAPI 顶层接口：按领域组织的子接口集合", "highlights": [19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]},
+        {"type": "heading", "level": 3, "text": "PlayerAPI 示例"},
+        {"type": "paragraph", "text": "PlayerAPI 是最常用的子接口，涵盖玩家的位置控制、属性管理、能力设置等。注意 walkTo 返回 Promise——这是一个阻塞操作，脚本执行器会等待玩家走到目标位置后才继续执行下一条命令。"},
+        {"type": "code-reference", "file": "miu2d/packages/engine/src/script/api/game-api.ts", "startLine": 40, "endLine": 93, "caption": "PlayerAPI：位置移动（阻塞 Promise）、属性管理、能力控制", "highlights": [40, 42, 45, 46, 47, 48, 51, 57, 58, 63, 64, 83, 84, 85]},
+        {"type": "heading", "level": 3, "text": "DialogAPI 的阻塞设计"},
+        {"type": "paragraph", "text": "DialogAPI 是阻塞设计的典型示例。show() 显示对话框并返回 Promise，只有当玩家点击关闭对话框后 Promise 才会 resolve，脚本才能继续执行。showSelection() 显示选择框，返回玩家选择的选项索引。"},
+        {"type": "code-reference", "file": "miu2d/packages/engine/src/script/api/game-api.ts", "startLine": 271, "endLine": 293, "caption": "DialogAPI：阻塞式对话和选择系统", "highlights": [271, 272, 273, 274, 275, 276, 277, 278, 279, 283, 284, 285, 289]},
+        {"type": "heading", "level": 3, "text": "阻塞操作的实现原理"},
+        {"type": "paragraph", "text": "所有阻塞操作的底层都依赖 BlockingResolver。当脚本执行到阻塞命令时，命令处理器 await 一个 GameAPI 方法，该方法内部通过 BlockingResolver 注册一个待解析的事件条件。每帧 update() 调用 resolver.tick() 检查条件是否满足（如对话框是否关闭、移动是否完成），满足后 resolve 对应的 Promise，脚本执行器恢复执行。"},
+        {"type": "code-block", "language": "typescript", "code": "// 阻塞操作的工作流程\n//\n//  脚本执行器                    BlockingResolver                UI 层\n//  executeCommand(\"Say\")\n//      |\n//      +-- handler 调用 api.dialog.show(text)\n//      |       |\n//      |       +-- resolver.waitFor(DIALOG_CLOSED)\n//      |       +-- 显示对话框 UI\n//      |       +-- await Promise (挂起)\n//      |\n//  每帧 update()\n//      +-- resolver.tick()\n//              |\n//              +-- 检查条件是否满足\n//              |\n//  玩家点击关闭 ->\n//      +-- onDialogClosed()\n//              +-- resolver.resolveEvent(DIALOG_CLOSED)\n//                  +-- Promise resolve\n//                      +-- 脚本执行器恢复\n//                          +-- 执行下一条命令"},
+        {"type": "note", "text": "GameAPI 的 Promise 设计使得 DSL 脚本可以用同步的写法表达异步的逻辑。脚本编写者不需要理解 Promise 或 async/await，只需要写 Say(1001, \"text\")，系统会自动处理等待和恢复。"}
+      ]
+    }
+  ],
+  "files": {
+    "miu2d/packages/engine/src/script/executor.ts": "脚本执行器 — 管理 DSL 脚本的执行循环、命令分发、调用栈和并行脚本",
+    "miu2d/packages/engine/src/script/api/game-api.ts": "GameAPI 接口 — 统一的游戏功能接口，按领域划分子接口，阻塞操作返回 Promise"
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "title": "W3D3: 动画剪辑与关键帧插值",
+  "chapters": [
+    {
+      "id": "D3-3-1",
+      "title": "AnimationClip 数据结构",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "动画剪辑的层级结构"},
+        {"type": "paragraph", "text": "AnimationClip 是 Cocos Creator 动画系统的核心数据容器。它表示一段完整的关键帧动画，数据按层级组织：Track（轨道）> Channel（通道）> Curve（曲线）> Keyframe（关键帧）。"},
+        {"type": "paragraph", "text": "从 3.3 版本起，Cocos 引入了全新的 Track-based 数据模型，取代了旧的 keys/curves 数组结构。每个 Track 描述一个目标属性（如节点的 position.x）随时间变化的曲线。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 97, "endLine": 103, "caption": "AnimationClip 类定义：继承 Asset，是动画数据的核心容器", "highlights": [97, 98, 99, 102, 103]},
+        {"type": "heading", "level": 3, "text": "核心属性"},
+        {"type": "table", "headers": ["属性", "类型", "说明"], "rows": [
+          ["sample", "number", "帧率（帧/秒），仅用于编辑器动画编辑，默认 60"],
+          ["speed", "number", "播放速度倍率，默认 1.0"],
+          ["duration", "number", "动画时长（秒）"],
+          ["wrapMode", "WrapMode", "循环模式（Normal/Loop/PingPong 等）"],
+          ["tracks", "Track[]", "所有轨道的数组"],
+          ["events", "IEvent[]", "动画事件数据"],
+          ["hash", "number", "动画剪辑的哈希值"]
+        ]},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 133, "endLine": 148, "caption": "sample、speed、wrapMode 属性定义", "highlights": [133, 134, 140, 141, 147, 148]},
+        {"type": "heading", "level": 3, "text": "Track 机制"},
+        {"type": "paragraph", "text": "每个 Track 通过 TrackPath 描述它要驱动的目标。TrackPath 可以指向节点的 TRS 属性（position/rotation/scale）、组件属性或自定义路径。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 180, "endLine": 192, "caption": "tracksCount 和 tracks 属性：获取轨道数量和可迭代对象", "highlights": [180, 181, 190, 191]},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 310, "endLine": 325, "caption": "addTrack/removeTrack：管理动画轨道", "highlights": [310, 311, 312, 313, 323, 324]},
+        {"type": "heading", "level": 3, "text": "动画事件"},
+        {"type": "paragraph", "text": "AnimationClip 的 events 数组存储动画事件，每个事件包含触发帧（frame）、函数名（func）和参数（params）。事件在动画播放到对应帧时触发："},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 53, "endLine": 58, "caption": "IEvent 接口：帧号 + 函数名 + 参数数组", "highlights": [53, 54, 55, 56, 57]},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 207, "endLine": 239, "caption": "events setter：将事件数据转换为运行时格式（ratios + eventGroups）", "highlights": [207, 211, 216, 217, 220, 235, 236]},
+        {"type": "note", "text": "AnimationClip 的 hash 值使用 murmurhash2_32_gc 算法计算，主要用于判断剪辑是否发生变化以决定是否需要重新烘焙。"}
+      ]
+    },
+    {
+      "id": "D3-3-2",
+      "title": "插值方法",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "关键帧插值概述"},
+        {"type": "paragraph", "text": "动画在两个关键帧之间的值需要通过插值（Interpolation）计算。不同的插值方法决定了动画的运动风格和流畅度。"},
+        {"type": "table", "headers": ["插值方法", "特点", "适用场景", "计算复杂度"], "rows": [
+          ["Step（阶梯）", "无插值，直接跳到下一个关键帧的值", "镜头切换、材质切换、离散状态", "O(1)"],
+          ["Linear（线性）", "两点之间线性过渡", "位移、简单旋转、颜色渐变", "O(1)"],
+          ["Cubic Hermite", "使用切线（tangent）控制曲线形状", "自然运动、缓入缓出", "O(1)"],
+          ["Bezier（贝塞尔）", "使用控制点精确控制曲线", "精确的运动曲线编辑", "O(1)"],
+          ["Catmull-Rom", "自动计算切线，经过所有控制点", "平滑路径、摄像机轨迹", "O(1)"]
+        ]},
+        {"type": "heading", "level": 3, "text": "Linear 插值"},
+        {"type": "code-block", "language": "typescript", "code": "// 线性插值 (lerp)\nfunction lerp(a: number, b: number, t: number): number {\n  return a + (b - a) * t;\n}\n\n// 对于四元数旋转，使用 slerp (球面线性插值)\nfunction slerp(a: Quat, b: Quat, t: number): Quat {\n  let cosHalfTheta = Quat.dot(a, b);\n  // 如果点积为负，翻转一个四元数以走最短路径\n  if (cosHalfTheta < 0) {\n    b = Quat.conjugate(b);\n    cosHalfTheta = -cosHalfTheta;\n  }\n  // ... 标准 slerp 公式\n}"},
+        {"type": "heading", "level": 3, "text": "Cubic Hermite 插值"},
+        {"type": "paragraph", "text": "Cubic Hermite 插值使用每个关键帧的值（p）和切线（m）来定义三次曲线。Cocos 的 RealCurve 使用这种方式："},
+        {"type": "code-block", "language": "typescript", "code": "// Cubic Hermite 插值公式\n// 给定两个关键帧: (t0, p0, m0) 和 (t1, p1, m1)\n// 在 t0 和 t1 之间的时间 t 处:\n// s = (t - t0) / (t1 - t0)  // 归一化时间 [0, 1]\n// h00 = 2s^3 - 3s^2 + 1     // Hermite 基函数\n// h10 = s^3 - 2s^2 + s\n// h01 = -2s^3 + 3s^2\n// h11 = s^3 - s^2\n// value = h00*p0 + h10*(t1-t0)*m0 + h01*p1 + h11*(t1-t0)*m1"},
+        {"type": "heading", "level": 3, "text": "四元数旋转插值的最短路径"},
+        {"type": "paragraph", "text": "四元数插值必须注意\"最短路径\"问题。q 和 -q 表示相同的旋转，但 slerp(q, -q, 0.5) 会绕远路。因此在插值前需要检查点积，如果为负则翻转其中一个四元数。"},
+        {"type": "note", "text": "在大多数动画编辑器中，切线有三种预设：Flat（平坦，切线为 0）、Linear（线性，切线为相邻关键帧差值）和 Smooth（平滑，自动计算切线使曲线连续）。"}
+      ]
+    },
+    {
+      "id": "D3-3-3",
+      "title": "动画求值管线",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "从 Track 到运行时"},
+        {"type": "paragraph", "text": "AnimationClip 的求值管线将静态的 Track 数据转换为运行时可高效计算的求值器。核心流程：Track -> TrackEval -> AnimationClipEvaluation。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 385, "endLine": 415, "caption": "createEvaluator：创建动画求值器——将 Track 绑定到目标节点", "highlights": [385, 386, 390, 391, 395, 396, 397, 414]},
+        {"type": "paragraph", "text": "createEvaluator 是动画系统的核心入口。它接收一个上下文（AnimationClipEvalContext），包含目标节点、输出姿势和动画遮罩。内部通过 Binder 函数将每个 Track 的 TrackBinding 绑定到目标节点的具体属性。"},
+        {"type": "heading", "level": 3, "text": "Binder 与 RuntimeBinding"},
+        {"type": "paragraph", "text": "Binder 是一个函数，接受 TrackBinding 并返回 RuntimeBinding。RuntimeBinding 是实际的读写接口，包含 setValue（写入求值结果）和可选的 getValue（读取当前值，用于未类型化轨道）。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 805, "endLine": 870, "caption": "_createEvalWithBinder：核心求值器创建逻辑——遍历所有 Track，绑定并构建 TrackEvalStatus", "highlights": [805, 824, 826, 827, 833, 834, 839, 841, 856, 863, 864, 867]},
+        {"type": "paragraph", "text": "关键步骤：1) 遍历所有 Track；2) 跳过 Root Motion Track 和空曲线；3) 通过 Binder 获取 RuntimeBinding；4) 创建 TrackEval（或对 UntypedTrack 做特殊处理）；5) 组装为 AnimationClipEvaluation。"},
+        {"type": "heading", "level": 3, "text": "TrackEvalStatus 与求值循环"},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 1046, "endLine": 1066, "caption": "TrackEvalStatus：每帧调用 evaluate(time) 更新目标属性值", "highlights": [1046, 1047, 1050, 1053, 1054, 1059, 1060]},
+        {"type": "paragraph", "text": "每帧的求值过程：1) 获取默认值（如果 TrackEval 需要）；2) 调用 trackEval.evaluate(time, defaultValue) 计算当前时间的值；3) 通过 binding.setValue(value) 写入目标属性。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 1285, "endLine": 1314, "caption": "AnimationClipEvaluation：遍历所有 TrackEvalStatus 执行求值，同时处理 ExoticAnimation", "highlights": [1285, 1286, 1300, 1301, 1307, 1308, 1311, 1312]},
+        {"type": "heading", "level": 3, "text": "AnimationState 的求值触发"},
+        {"type": "paragraph", "text": "AnimationState 负责驱动 AnimationClip 的求值。每帧 update 中计算时间进度，然后调用 _sampleCurves："},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 546, "endLine": 554, "caption": "_sampleCurves：设置权重并调用 clipEval.evaluate(time) 求值", "highlights": [546, 547, 548, 549, 551, 552]},
+        {"type": "note", "text": "AnimationClip 的 enableTrsBlending 属性启用后，TRS 轨道的求值结果会写入 PoseOutput（混合状态缓冲区）而非直接写入节点属性，从而支持动画混合。"}
+      ]
+    },
+    {
+      "id": "D3-3-4",
+      "title": "Spine JSON 格式",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Spine JSON 数据结构"},
+        {"type": "paragraph", "text": "Spine 导出的 JSON 文件是 2D 骨骼动画的事实标准格式之一。它包含完整的骨骼层级、插槽、附件、皮肤和动画数据。"},
+        {"type": "table", "headers": ["顶层字段", "类型", "说明"], "rows": [
+          ["skeleton", "object", "Spine 版本、尺寸、帧率等元信息"],
+          ["bones", "array", "骨骼层级定义（name, parent, x, y, rotation, scaleX, scaleY）"],
+          ["slots", "array", "插槽列表（name, bone, attachment, color）"],
+          ["skins", "array", "皮肤定义（name, attachments 的 Slot->Attachment 映射）"],
+          ["events", "object", "事件定义（name -> 属性配置）"],
+          ["animations", "object", "动画字典（name -> { bones, slots, deform, draworder, events }）"]
+        ]},
+        {"type": "heading", "level": 3, "text": "动画数据的组织"},
+        {"type": "paragraph", "text": "Spine 动画数据按以下层级组织："},
+        {"type": "code-block", "language": "json", "code": "// Spine 动画结构示例\n{\n  \"animations\": {\n    \"walk\": {\n      \"bones\": {\n        \"hip\": {\n          \"rotate\": [\n            {\"time\": 0, \"angle\": 0},\n            {\"time\": 0.5, \"angle\": 15, \"curve\": \"stepped\"},\n            {\"time\": 1, \"angle\": 0}\n          ],\n          \"translate\": [\n            {\"time\": 0, \"x\": 0, \"y\": 0},\n            {\"time\": 0.5, \"x\": 5, \"y\": 2},\n            {\"time\": 1, \"x\": 0, \"y\": 0}\n          ]\n        }\n      },\n      \"slots\": { ... },\n      \"deform\": { ... },  // 网格变形关键帧\n      \"events\": [ ... ],  // 帧事件\n      \"drawOrder\": [ ... ] // 绘制顺序变化\n    }\n  }\n}"},
+        {"type": "heading", "level": 3, "text": "曲线类型"},
+        {"type": "paragraph", "text": "Spine 支持多种关键帧曲线类型："},
+        {"type": "list", "items": [
+          "linear：线性插值（默认）",
+          "stepped：阶梯插值，无过渡",
+          "curve：贝塞尔曲线控制点 [cx1, cy1, cx2, cy2]",
+          "curve2：仅第二个控制点（第一个自动计算）"
+        ]},
+        {"type": "paragraph", "text": "在 Cocos 中，Spine JSON 通过 SkeletonData 资源导入，运行时由 spine-core 库解析为 spine.SkeletonData 对象。"},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 362, "endLine": 381, "caption": "skeletonData setter：设置骨骼数据并触发更新", "highlights": [362, 364, 367, 369, 370, 378]},
+        {"type": "note", "text": "Spine 的 deform（网格变形）数据允许动画直接控制网格顶点位置，这是 Spine 高级动画效果（如面部表情、布料）的关键。"}
+      ]
+    },
+    {
+      "id": "D3-3-5",
+      "title": "DragonBones 格式与对比",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "DragonBones 数据格式"},
+        {"type": "paragraph", "text": "DragonBones 是另一个流行的 2D 骨骼动画工具。它的数据格式与 Spine 类似但有以下区别："},
+        {"type": "table", "headers": ["特性", "Spine", "DragonBones"], "rows": [
+          ["数据格式", "JSON/二进制", "JSON（含纹理图集）"],
+          ["骨骼层级", "bones 数组", "bone 数组"],
+          ["动画数据", "animations 对象", "animation 数组"],
+          ["网格变形", "deform in animation", "FFD in animation"],
+          ["IK 约束", "ik 数组", "ik 数组"],
+          ["插值曲线", "贝塞尔控制点", "贝塞尔控制点"],
+          ["皮肤系统", "skins（Slot-Attachment 映射）", "skin（显示帧映射）"]
+        ]},
+        {"type": "heading", "level": 3, "text": "Cocos 对 DragonBones 的支持"},
+        {"type": "paragraph", "text": "Cocos Creator 通过 dragonBones 命名空间提供 DragonBones 运行时支持。核心类包括 DragonBonesData（骨骼数据）、Armature（骨架）和 ArmatureDisplay（显示组件）。"},
+        {"type": "heading", "level": 3, "text": "格式选择建议"},
+        {"type": "list", "items": [
+          "Spine：功能最完整，网格变形和 IK 支持最好，商业授权",
+          "DragonBones：免费开源，功能较 Spine 略少但足以应对大多数 2D 游戏需求",
+          "Cocos 内置动画编辑器：适合简单 UI 动画和帧动画，不需要外部工具",
+          "对于 3D 项目：使用 glTF/FBX 格式导入，Cocos 自动处理骨骼和动画数据"
+        ]},
+        {"type": "note", "text": "在实际项目中，Spine 和 DragonBones 的选择通常取决于美术团队的工具链偏好和项目预算。两者在 Cocos Creator 中都有良好的集成支持。"}
+      ]
+    }
+  ],
+  "files": {
+    "cocos/animation/animation-clip.ts": "AnimationClip 核心数据结构与求值管线",
+    "cocos/animation/animation-state.ts": "AnimationState 动画状态与求值触发",
+    "cocos/spine/skeleton.ts": "Spine 骨骼数据加载与动画播放"
+  }
+}

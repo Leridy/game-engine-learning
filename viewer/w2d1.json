@@ -1,0 +1,124 @@
+{
+  "title": "W2D1: Rust 基础",
+  "chapters": [
+    {
+      "id": "D2-1-1",
+      "title": "为什么游戏引擎选择 Rust",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Rust 在游戏引擎中的定位"},
+        {"type": "paragraph", "text": "在 Web 游戏引擎中，JavaScript 负责高层逻辑调度，但遇到计算密集型任务（寻路、物理、解码）时，JS 的性能瓶颈就暴露出来了。WebAssembly 提供了一条将 C/C++/Rust 等系统级语言编译到浏览器的路径，而 Rust 凭借其独特的内存安全保证，成为 WASM 生态中最受欢迎的语言。"},
+        {"type": "paragraph", "text": "Miu2D 引擎选择了 Rust 作为 WASM 模块的实现语言，用于 A* 寻路、精灵帧解码、空间碰撞检测等性能关键路径。下面我们从 Cargo.toml 开始，了解 Rust 项目的基本结构。"},
+        {"type": "heading", "level": 3, "text": "Rust vs C++ 对比"},
+        {"type": "table", "headers": ["特性", "Rust", "C++"],
+         "rows": [
+           ["内存安全", "编译期保证（所有权系统）", "手动管理，容易出错"],
+           ["并发安全", "编译期防止数据竞争", "需要程序员自行保证"],
+           ["WASM 生态", "wasm-pack 一键构建", "Emscripten 配置复杂"],
+           ["包管理", "Cargo 内置", "CMake + vcpkg 等第三方"],
+           ["零成本抽象", "泛型单态化", "模板特化"],
+           ["学习曲线", "陡峭（所有权概念）", "陡峭（UB 太多）"]
+         ]},
+        {"type": "note", "text": "Rust 的核心卖点是「无畏并发」（Fearless Concurrency）—— 编译器在编译期就能捕获大部分内存错误和数据竞争，无需垃圾回收器。"}
+      ]
+    },
+    {
+      "id": "D2-1-2",
+      "title": "Cargo.toml — Rust 项目的心脏",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Miu2D 引擎的 Cargo.toml 解析"},
+        {"type": "paragraph", "text": "Cargo.toml 是 Rust 项目的配置文件，类似于 Node.js 的 package.json。它定义了项目名称、版本、依赖、编译选项等一切元数据。让我们逐段解析 Miu2D WASM 模块的配置。"},
+        {"type": "code-reference", "file": "packages/engine-wasm/Cargo.toml", "startLine": 1, "endLine": 10, "caption": "项目元数据与 crate 类型", "highlights": [2, 9, 10]},
+        {"type": "paragraph", "text": "crate-type = [\"cdylib\", \"rlib\"] 声明了两种输出格式：cdylib 用于生成 .wasm 动态库供 JS 加载，rlib 用于 Rust 内部的单元测试。两者缺一不可。"},
+        {"type": "heading", "level": 3, "text": "核心依赖"},
+        {"type": "code-reference", "file": "packages/engine-wasm/Cargo.toml", "startLine": 15, "endLine": 32, "caption": "依赖声明：wasm-bindgen、hashbrown、web-sys、ruzstd", "highlights": [16, 17, 23, 26, 29]},
+        {"type": "list", "items": [
+          "wasm-bindgen — Rust 与 JS 互操作的桥梁，标记 #[wasm_bindgen] 的函数/结构体会自动生成 JS 绑定",
+          "js-sys — 提供 JS 内置对象（Array、Map 等）的 Rust 绑定",
+          "web-sys — 提供 Web API（console.log、performance.now）的 Rust 绑定",
+          "hashbrown — Google 的 SwissTable 哈希实现，比标准库 HashMap 快 2-3 倍",
+          "ruzstd — 纯 Rust 实现的 Zstd 解压，适合 WASM 环境（无 C 依赖）"
+        ]},
+        {"type": "heading", "level": 3, "text": "Release 编译优化"},
+        {"type": "code-reference", "file": "packages/engine-wasm/Cargo.toml", "startLine": 37, "endLine": 45, "caption": "极致优化：LTO、单 codegen unit、wasm-opt", "highlights": [39, 40, 41, 42, 45]},
+        {"type": "table", "headers": ["选项", "值", "效果"],
+         "rows": [
+           ["opt-level", "3", "最大优化级别"],
+           ["lto", "true", "链接时优化，跨 crate 内联"],
+           ["codegen-units", "1", "单编译单元，更好优化但编译更慢"],
+           ["panic", "abort", "panic 时直接 abort，减小 WASM 体积"],
+           ["wasm-opt", "-O4 --enable-simd", "wasm-pack 后处理，启用 SIMD"]
+         ]},
+        {"type": "note", "text": "panic = \"abort\" 在 WASM 中特别重要。默认的 unwind 机制会引入大量展开代码，使 WASM 体积膨胀 30-50%。abort 模式下 panic 直接丢弃栈帧，体积更小。"}
+      ]
+    },
+    {
+      "id": "D2-1-3",
+      "title": "所有权系统 — Rust 的核心创新",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "所有权三大规则"},
+        {"type": "paragraph", "text": "所有权（Ownership）是 Rust 最独特的概念。它在编译期通过三条规则管理内存，无需垃圾回收器："},
+        {"type": "list", "items": [
+          "规则 1：每个值都有一个所有者（owner）",
+          "规则 2：同一时刻只能有一个所有者",
+          "规则 3：所有者离开作用域时，值被自动释放（drop）"
+        ]},
+        {"type": "code-block", "language": "rust", "code": "fn main() {\n    let s1 = String::from(\"hello\"); // s1 是 \"hello\" 的所有者\n    let s2 = s1;                      // 所有权转移到 s2，s1 失效\n    // println!(\"{}\", s1);            // 编译错误！s1 已被移动\n    println!(\"{}\", s2);               // OK，s2 是当前所有者\n} // s2 离开作用域，\"hello\" 被自动释放"},
+        {"type": "heading", "level": 3, "text": "Move vs Copy 语义"},
+        {"type": "paragraph", "text": "Rust 中，赋值操作默认是 move（转移所有权），而非 copy（复制值）。实现了 Copy trait 的类型（如 i32、f64、bool）例外，它们会自动复制："},
+        {"type": "code-block", "language": "rust", "code": "let x: i32 = 42;\nlet y = x;   // i32 实现了 Copy，x 仍然有效\nprintln!(\"x={}, y={}\", x, y); // OK\n\nlet v1 = vec![1, 2, 3];\nlet v2 = v1;  // Vec 没有 Copy，v1 被移动\n// println!(\"{:?}\", v1);  // 编译错误！"},
+        {"type": "heading", "level": 3, "text": "在 Miu2D 中的体现"},
+        {"type": "paragraph", "text": "在寻路模块中，PathNode 结构体使用了 #[derive(Clone, Copy)]，因为节点数据很小（一个 Vec2 + 两个 f64），复制比移动更高效："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 62, "endLine": 68, "caption": "PathNode — 使用 Copy trait 的小型数据结构", "highlights": [63]},
+        {"type": "note", "text": "Copy 和 Clone 的区别：Clone 是显式调用 .clone() 进行深拷贝；Copy 是隐式的按位复制，仅适用于栈上的小型数据。Vec、String 等堆分配类型不能实现 Copy。"}
+      ]
+    },
+    {
+      "id": "D2-1-4",
+      "title": "借用规则 — 不可变与可变引用",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "引用与借用"},
+        {"type": "paragraph", "text": "如果每次使用数据都要转移所有权，代码会非常笨拙。Rust 提供了「借用」（Borrowing）机制：通过引用（&T 或 &mut T）临时访问数据，而不获取所有权。"},
+        {"type": "list", "items": [
+          "不可变引用 &T：可以同时存在多个，只读访问",
+          "可变引用 &mut T：同一时刻只能存在一个，可读写访问",
+          "规则：不可变引用和可变引用不能同时存在"
+        ]},
+        {"type": "code-block", "language": "rust", "code": "fn calculate_distance(a: &Vec2, b: &Vec2) -> f64 {\n    // a 和 b 是不可变引用，可以同时存在\n    let dx = (a.x - b.x) as f64;\n    let dy = (a.y - b.y) as f64;\n    (dx * dx + dy * dy).sqrt()\n}\n\nfn set_position(pos: &mut Vec2, x: i32, y: i32) {\n    // pos 是可变引用，可以修改数据\n    pos.x = x;\n    pos.y = y;\n}"},
+        {"type": "heading", "level": 3, "text": "在 PathFinder 中的借用模式"},
+        {"type": "paragraph", "text": "Miu2D 的 PathFinder 大量使用不可变借用。例如 pixel_distance 方法接收 &Vec2（不可变引用），因为计算距离不需要修改任何坐标："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 53, "endLine": 59, "caption": "pixel_distance — 接收不可变引用 &self 和 &other", "highlights": [53]},
+        {"type": "paragraph", "text": "而 set_obstacle 方法需要修改内部状态，所以接收 &mut self："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 128, "endLine": 149, "caption": "set_obstacle — 可变借用 &mut self 修改位图", "highlights": [128]},
+        {"type": "heading", "level": 3, "text": "为什么借用规则能防止 Bug"},
+        {"type": "paragraph", "text": "在 JS 中，两个函数同时修改同一个数组会导致难以追踪的 Bug。Rust 的借用规则在编译期就阻止了这种情况：可变引用是独占的，编译器保证在任何时刻，要么有多个只读读者，要么只有一个写者，永远不会出现读写冲突。"},
+        {"type": "note", "text": "借用规则的本质是「读写锁」的编译期版本。它不需要运行时开销，却能保证线程安全。这就是 Rust 「零成本抽象」的体现。"}
+      ]
+    },
+    {
+      "id": "D2-1-5",
+      "title": "生命周期 — 引用的有效期",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "生命周期标注 'a"},
+        {"type": "paragraph", "text": "生命周期（Lifetime）是 Rust 编译器用来确保引用始终有效的机制。大多数情况下编译器能自动推断（生命周期省略规则），但当函数签名涉及多个引用时，需要显式标注："},
+        {"type": "code-block", "language": "rust", "code": "/// 返回两个切片中较长的那个\nfn longer<'a>(s1: &'a str, s2: &'a str) -> &'a str {\n    if s1.len() > s2.len() { s1 } else { s2 }\n}\n\n// 使用示例\nlet result;\n{\n    let s2 = String::from(\"long string\");\n    let s1 = String::from(\"hi\");\n    result = longer(&s1, &s2);\n} // s1, s2 离开作用域\n// println!(\"{}\", result); // 编译错误！result 的生命周期已过期"},
+        {"type": "heading", "level": 3, "text": "生命周期省略规则"},
+        {"type": "paragraph", "text": "编译器有三条省略规则，大部分情况下不需要手写生命周期标注："},
+        {"type": "list", "items": [
+          "规则 1：每个引用参数获得独立的生命周期（如 fn f(&A, &B) → fn f<'a, 'b>(&'a A, &'b B)）",
+          "规则 2：如果只有一个输入生命周期，它被赋给所有输出引用",
+          "规则 3：如果有 &self 或 &mut self，self 的生命周期被赋给所有输出引用"
+        ]},
+        {"type": "heading", "level": 3, "text": "Miu2D 中的生命周期实践"},
+        {"type": "paragraph", "text": "在 PathFinder 中，方法如 find_path 返回 Vec<i32>（拥有所有权的类型），而非引用，因此完全避免了生命周期标注的复杂性。这是 Rust 的最佳实践：优先返回拥有所有权的值，而非借用的引用。"},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 228, "endLine": 236, "caption": "find_path 返回 Vec<i32>，拥有所有权，无需生命周期标注", "highlights": [236]},
+        {"type": "heading", "level": 3, "text": "结构体中的生命周期"},
+        {"type": "paragraph", "text": "当结构体持有引用时，必须标注生命周期。这在游戏引擎中较少出现，因为实体通常拥有自己的数据。但理解这个概念有助于阅读 Rust 标准库源码："},
+        {"type": "code-block", "language": "rust", "code": "// 结构体持有引用时需要生命周期标注\nstruct TextRenderer<'a> {\n    buffer: &'a mut [u8],  // 借用的缓冲区\n    font: &'a Font,        // 借用的字体资源\n}\n\n// PathFinder 拥有自己的 Vec<u8>，不需要生命周期\nstruct PathFinder {\n    obstacle_bitmap: Vec<u8>,      // 拥有所有权\n    hard_obstacle_bitmap: Vec<u8>, // 拥有所有权\n    dynamic_bitmap: Vec<u8>,       // 拥有所有权\n}"},
+        {"type": "note", "text": "生命周期不是运行时概念，它不会影响生成的代码或性能。它纯粹是编译器的静态分析工具，用来验证引用的安全性。所有生命周期信息在编译后完全擦除。"}
+      ]
+    }
+  ],
+  "files": {
+    "packages/engine-wasm/Cargo.toml": "[package]\nname = \"miu2d-engine-wasm\"\nversion = \"0.1.0\"\nedition = \"2021\"\nauthors = [\"Miu2D Team\"]\ndescription = \"High-performance WASM modules for Miu2D game engine\"\nlicense = \"MIT\"\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[features]\ndefault = [\"console_error_panic_hook\"]\n\n[dependencies]\nwasm-bindgen = \"0.2\"\njs-sys = \"0.3\"\nconsole_error_panic_hook = { version = \"0.1\", optional = true }\nhashbrown = \"0.14\"\nweb-sys = { version = \"0.3\", features = [\"console\", \"Performance\"] }\nruzstd = \"0.7\"\n\n[dev-dependencies]\nwasm-bindgen-test = \"0.3\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n\n[package.metadata.wasm-pack.profile.release]\nwasm-opt = [\"-O4\", \"--enable-simd\"]\n"
+  }
+}

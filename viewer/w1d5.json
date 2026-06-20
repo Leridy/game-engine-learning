@@ -1,0 +1,121 @@
+{
+  "title": "W1D5: Compute Shader + 2D 渲染实战",
+  "chapters": [
+    {
+      "id": "D1-5-1",
+      "title": "Compute Shader 基础 — workgroup 与 dispatch",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "什么是 Compute Shader？"},
+        {"type": "paragraph", "text": "Compute Shader 是一种不参与图形渲染管线的通用计算着色器。它运行在 GPU 的计算单元上，可以执行任意并行计算任务，如粒子模拟、物理计算、图像处理、AI 推理等。与顶点/片段着色器不同，Compute Shader 没有固定的输入输出格式，完全由开发者定义数据流。"},
+        {"type": "heading", "level": 3, "text": "工作组（Workgroup）模型"},
+        {"type": "paragraph", "text": "GPU 的计算单元以工作组为基本调度单位。每个工作组包含一组线程，这些线程可以共享数据（通过 workgroup 共享内存）并进行同步。"},
+        {"type": "table", "headers": ["概念", "说明", "示例"],
+         "rows": [
+           ["Workgroup", "一组共享资源的线程", "256 个线程为一个工作组"],
+           ["@workgroup_size(x, y, z)", "工作组的维度", "@workgroup_size(64, 1, 1) 表示一维 64 线程"],
+           ["dispatch(x, y, z)", "启动工作组的数量", "dispatch(100, 1, 1) 启动 100 个工作组"],
+           ["总线程数", "workgroup_size × dispatch", "64 × 100 = 6400 个线程"]
+         ]},
+        {"type": "heading", "level": 3, "text": "Compute Shader 示例"},
+        {"type": "code-block", "language": "wgsl", "code": "// 粒子系统 Compute Shader\nstruct Particle {\n    position: vec3<f32>,\n    velocity: vec3<f32>,\n    life: f32,\n    color: vec4<f32>,\n};\n\nstruct SimParams {\n    deltaTime: f32,\n    gravity: vec3<f32>,\n    particleCount: u32,\n};\n\n@group(0) @binding(0) var<uniform> params: SimParams;\n@group(0) @binding(1) var<storage, read_write> particles: array<Particle>;\n\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) id: vec3<u32>) {\n    let index = id.x;\n    if (index >= params.particleCount) {\n        return;\n    }\n\n    var p = particles[index];\n\n    // 应用重力\n    p.velocity += params.gravity * params.deltaTime;\n\n    // 更新位置\n    p.position += p.velocity * params.deltaTime;\n\n    // 减少生命值\n    p.life -= params.deltaTime;\n\n    // 边界检测\n    if (p.position.y < 0.0) {\n        p.position.y = 0.0;\n        p.velocity.y = -p.velocity.y * 0.8;  // 反弹\n    }\n\n    particles[index] = p;\n}"},
+        {"type": "heading", "level": 3, "text": "Storage Buffer — 可读写的 GPU 缓冲区"},
+        {"type": "paragraph", "text": "Compute Shader 的核心是 Storage Buffer（var<storage, read_write>）。与 Uniform Buffer 不同，Storage Buffer 可以读写，且大小限制更宽松（通常可达 128MB 以上）。这使得它非常适合存储大量动态数据，如粒子数组、网格顶点等。"},
+        {"type": "note", "text": "Compute Shader 是 GPU 通用计算（GPGPU）的基础。在游戏引擎中，它常用于粒子系统、布料模拟、后处理效果等需要大量并行计算的场景。"}
+      ]
+    },
+    {
+      "id": "D1-5-2",
+      "title": "Compute Pipeline — 计算管线创建",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "计算管线 vs 渲染管线"},
+        {"type": "paragraph", "text": "计算管线比渲染管线简单得多——它只需要一个计算着色器模块和绑定组布局，不需要顶点输入、光栅化、混合等状态。"},
+        {"type": "code-block", "language": "typescript", "code": "// WebGPU 计算管线创建\nconst computePipeline = device.createComputePipeline({\n    layout: device.createPipelineLayout({\n        bindGroupLayouts: [bindGroupLayout],\n    }),\n    compute: {\n        module: computeShaderModule,\n        entryPoint: 'main',\n    },\n});"},
+        {"type": "heading", "level": 3, "text": "计算命令录制"},
+        {"type": "paragraph", "text": "计算命令在 GPUCommandEncoder 上录制，使用 beginComputePass() 开始计算 Pass："},
+        {"type": "code-block", "language": "typescript", "code": "// 计算命令录制流程\nconst encoder = device.createCommandEncoder();\nconst computePass = encoder.beginComputePass();\n\n// 绑定计算管线和资源\ncomputePass.setPipeline(computePipeline);\ncomputePass.setBindGroup(0, computeBindGroup);\n\n// 启动计算：100 个工作组，每组 64 线程\ncomputePass.dispatchWorkgroups(100, 1, 1);\n\ncomputePass.end();\n\n// 提交命令\nconst commandBuffer = encoder.finish();\ndevice.queue.submit([commandBuffer]);"},
+        {"type": "heading", "level": 3, "text": "Storage Buffer 的创建与绑定"},
+        {"type": "paragraph", "text": "Storage Buffer 需要在创建时指定 usage 包含 STORAGE："},
+        {"type": "code-block", "language": "typescript", "code": "// 创建 Storage Buffer\nconst particleBuffer = device.createBuffer({\n    size: particleCount * PARTICLE_STRIDE,\n    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,\n    mappedAtCreation: true,\n});\n\n// 初始化数据\nconst data = new Float32Array(particleBuffer.getMappedRange());\nfor (let i = 0; i < particleCount; i++) {\n    data[i * 8 + 0] = Math.random() * 10 - 5;  // position.x\n    data[i * 8 + 1] = Math.random() * 10;       // position.y\n    data[i * 8 + 2] = Math.random() * 10 - 5;  // position.z\n    data[i * 8 + 3] = 0;                         // padding\n    data[i * 8 + 4] = (Math.random() - 0.5) * 2; // velocity.x\n    data[i * 8 + 5] = Math.random() * 5;         // velocity.y\n    data[i * 8 + 6] = (Math.random() - 0.5) * 2; // velocity.z\n    data[i * 8 + 7] = 1.0;                        // life\n}\nparticleBuffer.unmap();"},
+        {"type": "note", "text": "在实际项目中，通常会创建两个 Storage Buffer 进行乒乓（ping-pong）操作：一个用于当前帧读取，另一个用于写入下一帧数据，然后交换。这避免了读写同一缓冲区的竞态条件。"}
+      ]
+    },
+    {
+      "id": "D1-5-3",
+      "title": "粒子系统实战 — Compute + Render 联动",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "粒子系统的架构"},
+        {"type": "paragraph", "text": "一个完整的 GPU 粒子系统由两个阶段组成：计算阶段（更新粒子状态）和渲染阶段（绘制粒子）。两个阶段共享同一个 Storage Buffer，实现了零拷贝的数据传递。"},
+        {"type": "heading", "level": 3, "text": "完整流程"},
+        {"type": "list", "items": [
+          "1. 创建粒子 Storage Buffer，初始化粒子数据",
+          "2. 创建计算管线（Compute Pipeline）和绑定组",
+          "3. 创建渲染管线（Render Pipeline），使用 Storage Buffer 作为顶点数据源",
+          "4. 每帧：先执行 Compute Shader 更新粒子状态，再执行 Render Pass 绘制粒子"
+        ]},
+        {"type": "heading", "level": 3, "text": "计算阶段 — 更新粒子"},
+        {"type": "code-block", "language": "typescript", "code": "// 每帧的计算更新\nconst encoder = device.createCommandEncoder();\n\n// 计算 Pass：更新粒子\nconst computePass = encoder.beginComputePass();\ncomputePass.setPipeline(computePipeline);\ncomputePass.setBindGroup(0, computeBindGroup);\ncomputePass.dispatchWorkgroups(Math.ceil(particleCount / 64), 1, 1);\ncomputePass.end();"},
+        {"type": "heading", "level": 3, "text": "渲染阶段 — 绘制粒子"},
+        {"type": "code-block", "language": "typescript", "code": "// 渲染 Pass：绘制粒子\nconst renderPass = encoder.beginRenderPass(renderPassDescriptor);\nrenderPass.setPipeline(renderPipeline);\nrenderPass.setBindGroup(0, renderBindGroup);\nrenderPass.setVertexBuffer(0, particleBuffer);  // 同一个 Buffer！\nrenderPass.draw(6, particleCount);  // 每个粒子 6 个顶点（四边形）\nrenderPass.end();"},
+        {"type": "heading", "level": 3, "text": "性能优势"},
+        {"type": "table", "headers": ["对比项", "CPU 粒子", "GPU 粒子"],
+         "rows": [
+           ["更新位置", "CPU 逐个计算", "GPU 并行计算（数千线程）"],
+           ["数据传输", "每帧上传顶点数据", "零传输（共享 Buffer）"],
+           ["最大粒子数", "通常 < 10,000", "可达 1,000,000+"],
+           ["CPU 占用", "高（每帧计算）", "极低（仅录制命令）"]
+         ]},
+        {"type": "note", "text": "GPU 粒子系统的瓶颈通常在顶点吞吐量而非计算能力。使用实例化渲染（draw(6, N)）而非每个粒子独立 draw call 可以进一步提升性能。"}
+      ]
+    },
+    {
+      "id": "D1-5-4",
+      "title": "WebGPU Queue — 命令提交与同步",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "GPU Queue 的角色"},
+        {"type": "paragraph", "text": "WebGPU 的 GPUQueue 是命令提交的终点。所有录制好的命令缓冲区最终都通过 queue.submit() 提交到 GPU 执行。Queue 还负责数据上传（writeBuffer/writeTexture）和同步等待。"},
+        {"type": "heading", "level": 3, "text": "Cocos WebGPUQueue 实现"},
+        {"type": "code-reference", "file": "cocos/gfx/webgpu/webgpu-queue.ts", "startLine": 30, "endLine": 65, "caption": "WebGPUQueue：Cocos 的 WebGPU 队列实现，负责命令提交和统计数据收集", "highlights": [30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65]},
+        {"type": "heading", "level": 3, "text": "统计数据收集"},
+        {"type": "paragraph", "text": "WebGPUQueue 维护了三个统计计数器：numDrawCalls（绘制调用次数）、numInstances（实例总数）、numTris（三角形总数）。这些数据在每帧结束时由渲染循环读取，用于性能分析和调试。"},
+        {"type": "heading", "level": 3, "text": "异步提交（TODO）"},
+        {"type": "paragraph", "text": "当前的 WebGPUQueue.submit() 是同步实现——遍历所有命令缓冲区并累加统计数据。代码中标注了 TODO: Async，未来可能支持异步提交以充分利用 GPU 并行能力。"},
+        {"type": "heading", "level": 3, "text": "完整的 WebGPU 渲染流程"},
+        {"type": "code-block", "language": "typescript", "code": "// 完整的 WebGPU 渲染一帧的流程\n\n// 1. 获取当前纹理（从交换链）\nconst textureView = context.getCurrentTexture().createView();\n\n// 2. 创建命令编码器\nconst encoder = device.createCommandEncoder();\n\n// 3. （可选）执行计算 Pass\nconst computePass = encoder.beginComputePass();\n// ... 录制计算命令\ncomputePass.end();\n\n// 4. 执行渲染 Pass\nconst renderPass = encoder.beginRenderPass({\n    colorAttachments: [{\n        view: textureView,\n        clearValue: { r: 0, g: 0, b: 0, a: 1 },\n        loadOp: 'clear',\n        storeOp: 'store',\n    }],\n});\n// ... 录制渲染命令\nrenderPass.end();\n\n// 5. 完成命令编码\nconst commandBuffer = encoder.finish();\n\n// 6. 提交到队列\ndevice.queue.submit([commandBuffer]);"},
+        {"type": "note", "text": "WebGPU 的 Queue.submit() 是异步的——调用后立即返回，GPU 在后台执行命令。要读取 GPU 计算结果，需要使用 queue.onSubmittedWorkDone() 或 mapAsync() 进行同步等待。"}
+      ]
+    },
+    {
+      "id": "D1-5-5",
+      "title": "本周总结 — WebGPU 核心概念回顾",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "W1 学习成果"},
+        {"type": "paragraph", "text": "经过本周的学习，我们已经掌握了 WebGPU 的核心概念和 Cocos 引擎的 WebGPU 后端实现。以下是关键知识点的回顾："},
+        {"type": "heading", "level": 3, "text": "核心概念清单"},
+        {"type": "table", "headers": ["概念", "说明", "Cocos 实现"],
+         "rows": [
+           ["WGSL 着色器", "WebGPU 的着色语言，支持类型安全和属性标注", "WebGPUShader → GPUShaderModule"],
+           ["Pipeline State Object", "不可变的管线状态集合，包含所有渲染配置", "WebGPUPipelineState → GPURenderPipeline"],
+           ["BindGroup", "资源绑定组，将 Buffer/Texture/Sampler 绑定到着色器", "WebGPUDescriptorSet → GPUBindGroup"],
+           ["CommandBuffer", "命令录制容器，支持延迟执行和批量提交", "WebGPUCommandBuffer"],
+           ["RenderPass", "渲染过程管理，定义渲染目标和清除策略", "WebGPURenderPass"],
+           ["Compute Shader", "通用计算着色器，支持 workgroup 并行", "通过 WebGPU API 直接使用"],
+           ["Queue", "命令提交队列，负责 GPU 同步和统计数据", "WebGPUQueue"]
+         ]},
+        {"type": "heading", "level": 3, "text": "性能优化要点"},
+        {"type": "list", "items": [
+          "管线缓存：PSO 创建开销大，必须缓存复用",
+          "批处理：相同材质/纹理的 draw call 合并（Batcher2D）",
+          "实例化渲染：大量相似对象使用 drawIndexed(6, N) 一次绘制",
+          "Storage Buffer：大数据使用 Storage Buffer 而非 Uniform Buffer",
+          "命令复用：静态场景可以复用命令缓冲区"
+        ]},
+        {"type": "heading", "level": 3, "text": "下一步学习"},
+        {"type": "paragraph", "text": "下周（W2）我们将深入学习渲染管线的更多细节，包括：Multi-Pass Rendering、后处理效果、光照系统和阴影技术。这些内容将建立在本周学习的 WebGPU 基础之上。"},
+        {"type": "note", "text": "建议在进入下周学习前，尝试自己实现一个简单的 WebGPU 粒子系统，巩固本周所学的 Compute Shader、Storage Buffer 和实例化渲染知识。"}
+      ]
+    }
+  ],
+  "files": {
+    "cocos/gfx/webgpu/webgpu-queue.ts": "/*\n Copyright (c) 2024 Xiamen Yaji Software Co., Ltd.\n\n https://www.cocos.com/\n\n Permission is hereby granted, free of charge, to any person obtaining a copy\n of this software and associated documentation files (the \"Software\"), to deal\n in the Software without restriction, including without limitation the rights to\n use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies\n of the Software, and to permit persons to whom the Software is furnished to do so,\n subject to the following conditions:\n\n The above copyright notice and this permission notice shall be included in\n all copies or substantial portions of the Software.\n\n THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n THE SOFTWARE.\n*/\n\nimport { CommandBuffer } from '../base/command-buffer';\nimport { Queue } from '../base/queue';\nimport { WebGPUCommandBuffer } from './webgpu-command-buffer';\nimport { QueueInfo } from '../base/define';\n\nexport class WebGPUQueue extends Queue {\n    public numDrawCalls = 0;\n    public numInstances = 0;\n    public numTris = 0;\n\n    private _nativeQueue: GPUQueue | null = null;\n    private _isAsync = false;\n    public initialize (info: QueueInfo): boolean {\n        this._type = info.type;\n\n        return true;\n    }\n\n    public destroy (): void {\n        // noop\n    }\n\n    public submit (cmdBuffs: CommandBuffer[]): void {\n        // TODO: Async\n        if (!this._isAsync) {\n            const cmdBuffSize = cmdBuffs.length;\n            for (let i = 0; i < cmdBuffSize; i++) {\n                const cmdBuff = cmdBuffs[i] as WebGPUCommandBuffer;\n                this.numDrawCalls += cmdBuff.numDrawCalls;\n                this.numInstances += cmdBuff.numInstances;\n                this.numTris += cmdBuff.numTris;\n            }\n        }\n    }\n\n    public clear (): void {\n        this.numDrawCalls = 0;\n        this.numInstances = 0;\n        this.numTris = 0;\n    }\n}"
+  }
+}

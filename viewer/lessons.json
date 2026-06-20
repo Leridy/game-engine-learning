@@ -53,16 +53,52 @@
         },
         {
           "type": "table",
-          "headers": ["特性", "WebGL 2.0", "WebGPU"],
+          "headers": [
+            "特性",
+            "WebGL 2.0",
+            "WebGPU"
+          ],
           "rows": [
-            ["状态管理", "全局状态机，逐项设置", "不可变 PSO，一次创建"],
-            ["命令模型", "立即模式（immediate）", "命令缓冲（deferred）"],
-            ["着色器语言", "GLSL ES", "WGSL"],
-            ["着色器编译", "运行时字符串编译", "预编译模块"],
-            ["Compute Shader", "不支持", "原生支持"],
-            ["内存管理", "驱动自动（不透明）", "开发者显式管理 Buffer/Texture"],
-            ["多线程", "仅主线程", "Worker 线程可录制命令"],
-            ["CPU 开销", "高（状态验证）", "低（状态冻结在 PSO 中）"]
+            [
+              "状态管理",
+              "全局状态机，逐项设置",
+              "不可变 PSO，一次创建"
+            ],
+            [
+              "命令模型",
+              "立即模式（immediate）",
+              "命令缓冲（deferred）"
+            ],
+            [
+              "着色器语言",
+              "GLSL ES",
+              "WGSL"
+            ],
+            [
+              "着色器编译",
+              "运行时字符串编译",
+              "预编译模块"
+            ],
+            [
+              "Compute Shader",
+              "不支持",
+              "原生支持"
+            ],
+            [
+              "内存管理",
+              "驱动自动（不透明）",
+              "开发者显式管理 Buffer/Texture"
+            ],
+            [
+              "多线程",
+              "仅主线程",
+              "Worker 线程可录制命令"
+            ],
+            [
+              "CPU 开销",
+              "高（状态验证）",
+              "低（状态冻结在 PSO 中）"
+            ]
           ]
         },
         {
@@ -73,7 +109,8 @@
           "type": "paragraph",
           "text": "下面我们来看看 Cocos Creator 引擎是如何通过 GFX 抽象层来屏蔽这些底层差异的。"
         }
-      ]
+      ],
+      "id": "D1-1"
     },
     {
       "title": "Cocos GFX 抽象层 — 跨平台 GPU 抽象",
@@ -106,7 +143,15 @@
           "startLine": 55,
           "endLine": 405,
           "caption": "Device 抽象类 — GFX 抽象层的核心工厂",
-          "highlights": [55, 194, 235, 242, 256, 298, 312]
+          "highlights": [
+            55,
+            194,
+            235,
+            242,
+            256,
+            298,
+            312
+          ]
         },
         {
           "type": "heading",
@@ -123,7 +168,9 @@
           "startLine": 194,
           "endLine": 194,
           "caption": "initialize 方法签名 — 返回 boolean 或 Promise<boolean>",
-          "highlights": [194]
+          "highlights": [
+            194
+          ]
         },
         {
           "type": "paragraph",
@@ -135,7 +182,11 @@
           "startLine": 235,
           "endLine": 256,
           "caption": "createBuffer / createTexture / createShader — 核心资源创建方法",
-          "highlights": [235, 242, 256]
+          "highlights": [
+            235,
+            242,
+            256
+          ]
         },
         {
           "type": "heading",
@@ -152,19 +203,55 @@
           "startLine": 88,
           "endLine": 98,
           "caption": "API 枚举 — 所有支持的图形后端",
-          "highlights": [88, 97, 98]
+          "highlights": [
+            88,
+            97,
+            98
+          ]
         },
         {
           "type": "table",
-          "headers": ["枚举值", "后端", "平台"],
+          "headers": [
+            "枚举值",
+            "后端",
+            "平台"
+          ],
           "rows": [
-            ["GLES2", "OpenGL ES 2.0", "旧设备/浏览器"],
-            ["GLES3", "OpenGL ES 3.0", "现代移动设备"],
-            ["WEBGL", "WebGL 1.0", "旧浏览器"],
-            ["WEBGL2", "WebGL 2.0", "现代浏览器"],
-            ["WEBGPU", "WebGPU", "最新浏览器（Chrome 113+）"],
-            ["METAL", "Metal", "iOS / macOS"],
-            ["VULKAN", "Vulkan", "Android / Windows / Linux"]
+            [
+              "GLES2",
+              "OpenGL ES 2.0",
+              "旧设备/浏览器"
+            ],
+            [
+              "GLES3",
+              "OpenGL ES 3.0",
+              "现代移动设备"
+            ],
+            [
+              "WEBGL",
+              "WebGL 1.0",
+              "旧浏览器"
+            ],
+            [
+              "WEBGL2",
+              "WebGL 2.0",
+              "现代浏览器"
+            ],
+            [
+              "WEBGPU",
+              "WebGPU",
+              "最新浏览器（Chrome 113+）"
+            ],
+            [
+              "METAL",
+              "Metal",
+              "iOS / macOS"
+            ],
+            [
+              "VULKAN",
+              "Vulkan",
+              "Android / Windows / Linux"
+            ]
           ]
         },
         {
@@ -189,7 +276,8 @@
           "type": "note",
           "text": "WebGPU 的资源管理比 WebGL 更加严格。在 WebGL 中，忘记删除纹理通常只会导致内存缓慢增长；在 WebGPU 中，GPU 内存是显式分配的，泄漏会更快地导致问题。"
         }
-      ]
+      ],
+      "id": "D1-2"
     },
     {
       "title": "GPUAdapter 和 GPUDevice",
@@ -227,7 +315,16 @@
           "startLine": 98,
           "endLine": 141,
           "caption": "WebGPUDevice 类 — 继承 Device，实现 WebGPU 后端",
-          "highlights": [98, 105, 106, 107, 108, 109, 110, 111]
+          "highlights": [
+            98,
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111
+          ]
         },
         {
           "type": "heading",
@@ -270,7 +367,8 @@
           "type": "note",
           "text": "在 Cocos 引擎中，WebGPUDevice.initialize() 返回一个 Promise<boolean>，这是因为它内部需要完成 requestAdapter 和 requestDevice 的异步调用。而 WebGL 的 Device.initialize() 是同步的，直接返回 boolean。这就是为什么 Device 基类的 initialize 签名是 `boolean | Promise<boolean>`。"
         }
-      ]
+      ],
+      "id": "D1-3"
     },
     {
       "title": "GPUBuffer — GPU 内存块",
@@ -295,16 +393,52 @@
         },
         {
           "type": "table",
-          "headers": ["标志", "用途", "典型场景"],
+          "headers": [
+            "标志",
+            "用途",
+            "典型场景"
+          ],
           "rows": [
-            ["VERTEX", "作为顶点属性数据源", "网格的顶点/法线/UV 数据"],
-            ["INDEX", "作为索引数据源", "三角形索引列表"],
-            ["UNIFORM", "作为着色器 Uniform 缓冲", "变换矩阵、光照参数"],
-            ["STORAGE", "作为存储缓冲（可读写）", "Compute Shader 的输入/输出"],
-            ["COPY_SRC", "可以作为复制操作的源", "数据从 GPU 读回 CPU"],
-            ["COPY_DST", "可以作为复制操作的目标", "从 CPU 上传数据到 GPU"],
-            ["MAP_READ", "可以被 CPU 映射读取", "读回 GPU 计算结果"],
-            ["MAP_WRITE", "可以被 CPU 映射写入", "CPU 直接写入 GPU 内存"]
+            [
+              "VERTEX",
+              "作为顶点属性数据源",
+              "网格的顶点/法线/UV 数据"
+            ],
+            [
+              "INDEX",
+              "作为索引数据源",
+              "三角形索引列表"
+            ],
+            [
+              "UNIFORM",
+              "作为着色器 Uniform 缓冲",
+              "变换矩阵、光照参数"
+            ],
+            [
+              "STORAGE",
+              "作为存储缓冲（可读写）",
+              "Compute Shader 的输入/输出"
+            ],
+            [
+              "COPY_SRC",
+              "可以作为复制操作的源",
+              "数据从 GPU 读回 CPU"
+            ],
+            [
+              "COPY_DST",
+              "可以作为复制操作的目标",
+              "从 CPU 上传数据到 GPU"
+            ],
+            [
+              "MAP_READ",
+              "可以被 CPU 映射读取",
+              "读回 GPU 计算结果"
+            ],
+            [
+              "MAP_WRITE",
+              "可以被 CPU 映射写入",
+              "CPU 直接写入 GPU 内存"
+            ]
           ]
         },
         {
@@ -373,13 +507,16 @@
           "startLine": 235,
           "endLine": 235,
           "caption": "Device.createBuffer — 抽象工厂方法",
-          "highlights": [235]
+          "highlights": [
+            235
+          ]
         },
         {
           "type": "note",
           "text": "GPUBuffer 的大小在创建时确定，之后不能改变。如果需要更大的缓冲，必须创建新缓冲并销毁旧的。因此在设计时应预估好缓冲大小，避免频繁重建。"
         }
-      ]
+      ],
+      "id": "D1-4"
     },
     {
       "title": "GPUTexture — 图像数据容器",
@@ -404,16 +541,61 @@
         },
         {
           "type": "table",
-          "headers": ["格式", "每像素字节", "用途", "说明"],
+          "headers": [
+            "格式",
+            "每像素字节",
+            "用途",
+            "说明"
+          ],
           "rows": [
-            ["rgba8unorm", "4", "通用颜色纹理", "每个通道 8 位，归一化到 [0,1]"],
-            ["bgra8unorm", "4", "WebGPU 默认交换链格式", "与 rgba8unorm 类似，通道顺序不同"],
-            ["rgba16float", "8", "HDR 渲染目标", "16 位浮点，支持超出 [0,1] 的值"],
-            ["rgba32float", "16", "高精度计算", "32 位浮点，用于 G-Buffer 等"],
-            ["depth24plus", "4", "深度缓冲", "24 位深度 + 8 位模板"],
-            ["depth32float", "4", "高精度深度", "32 位浮点深度"],
-            ["r8unorm", "1", "灰度/遮罩", "单通道 8 位"],
-            ["rg8unorm", "2", "法线贴图 XY", "双通道 8 位"]
+            [
+              "rgba8unorm",
+              "4",
+              "通用颜色纹理",
+              "每个通道 8 位，归一化到 [0,1]"
+            ],
+            [
+              "bgra8unorm",
+              "4",
+              "WebGPU 默认交换链格式",
+              "与 rgba8unorm 类似，通道顺序不同"
+            ],
+            [
+              "rgba16float",
+              "8",
+              "HDR 渲染目标",
+              "16 位浮点，支持超出 [0,1] 的值"
+            ],
+            [
+              "rgba32float",
+              "16",
+              "高精度计算",
+              "32 位浮点，用于 G-Buffer 等"
+            ],
+            [
+              "depth24plus",
+              "4",
+              "深度缓冲",
+              "24 位深度 + 8 位模板"
+            ],
+            [
+              "depth32float",
+              "4",
+              "高精度深度",
+              "32 位浮点深度"
+            ],
+            [
+              "r8unorm",
+              "1",
+              "灰度/遮罩",
+              "单通道 8 位"
+            ],
+            [
+              "rg8unorm",
+              "2",
+              "法线贴图 XY",
+              "双通道 8 位"
+            ]
           ]
         },
         {
@@ -456,13 +638,16 @@
           "startLine": 242,
           "endLine": 242,
           "caption": "Device.createTexture — 抽象工厂方法",
-          "highlights": [242]
+          "highlights": [
+            242
+          ]
         },
         {
           "type": "note",
           "text": "WebGPU 的纹理格式名称使用 kebab-case（如 rgba8unorm），而 Cocos GFX 使用 PascalCase 枚举（如 Format.RGBA8）。在 WebGPUDevice 内部会进行格式转换。"
         }
-      ]
+      ],
+      "id": "D1-5"
     },
     {
       "title": "GPUSampler — 纹理采样控制",
@@ -487,12 +672,37 @@
         },
         {
           "type": "table",
-          "headers": ["模式", "效果", "适用场景", "性能"],
+          "headers": [
+            "模式",
+            "效果",
+            "适用场景",
+            "性能"
+          ],
           "rows": [
-            ["nearest", "取最近的像素，无插值", "像素风格游戏、UI 元素", "最快"],
-            ["linear", "双线性插值（2D）或三线性插值（3D+Mipmap）", "写实风格纹理", "稍慢"],
-            ["nearest-mipmap-nearest", "取最近 mipmap 层级的最近像素", "较少使用", "快"],
-            ["linear-mipmap-linear", "在两个 mipmap 层级间插值", "高质量远距离渲染", "最慢"]
+            [
+              "nearest",
+              "取最近的像素，无插值",
+              "像素风格游戏、UI 元素",
+              "最快"
+            ],
+            [
+              "linear",
+              "双线性插值（2D）或三线性插值（3D+Mipmap）",
+              "写实风格纹理",
+              "稍慢"
+            ],
+            [
+              "nearest-mipmap-nearest",
+              "取最近 mipmap 层级的最近像素",
+              "较少使用",
+              "快"
+            ],
+            [
+              "linear-mipmap-linear",
+              "在两个 mipmap 层级间插值",
+              "高质量远距离渲染",
+              "最慢"
+            ]
           ]
         },
         {
@@ -506,11 +716,27 @@
         },
         {
           "type": "table",
-          "headers": ["模式", "行为", "典型用途"],
+          "headers": [
+            "模式",
+            "行为",
+            "典型用途"
+          ],
           "rows": [
-            ["clamp-to-edge", "超出范围时取边缘像素", "UI 元素、不需要重复的纹理"],
-            ["repeat", "超出范围时重复纹理", "地形、墙面等需要平铺的纹理"],
-            ["mirror-repeat", "超出范围时镜像重复", "需要无缝平铺但避免明显接缝的纹理"]
+            [
+              "clamp-to-edge",
+              "超出范围时取边缘像素",
+              "UI 元素、不需要重复的纹理"
+            ],
+            [
+              "repeat",
+              "超出范围时重复纹理",
+              "地形、墙面等需要平铺的纹理"
+            ],
+            [
+              "mirror-repeat",
+              "超出范围时镜像重复",
+              "需要无缝平铺但避免明显接缝的纹理"
+            ]
           ]
         },
         {
@@ -538,7 +764,15 @@
           "startLine": 105,
           "endLine": 111,
           "caption": "WebGPUDevice.getSampler — 带缓存的采样器获取",
-          "highlights": [105, 106, 107, 108, 109, 110, 111]
+          "highlights": [
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111
+          ]
         },
         {
           "type": "paragraph",
@@ -548,7 +782,8 @@
           "type": "note",
           "text": "采样器是 WebGPU 中最轻量的对象之一，创建成本很低，但使用缓存仍然是好习惯。在 Cocos 引擎中，_samplers 是 Device 基类上定义的 Map<number, Sampler>，所有后端都共享这个缓存策略。"
         }
-      ]
+      ],
+      "id": "D1-6"
     }
   ],
   "files": {

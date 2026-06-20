@@ -1,0 +1,141 @@
+{
+  "title": "W3D2: 蒙皮(Skinning)",
+  "chapters": [
+    {
+      "id": "D3-2-1",
+      "title": "蒙皮权重与 LBS 公式",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "什么是蒙皮"},
+        {"type": "paragraph", "text": "蒙皮（Skinning）是将骨骼变换应用到网格顶点的过程。每个顶点不是简单地\"绑定\"到一根骨骼上，而是可以被多根骨骼共同影响。每根骨骼对顶点的影响程度由权重（weight）决定。"},
+        {"type": "paragraph", "text": "一个典型的蒙皮顶点数据包含："},
+        {"type": "table", "headers": ["数据", "说明", "典型格式"], "rows": [
+          ["position", "顶点在模型空间的初始位置（绑定姿态下）", "float3"],
+          ["normal", "顶点法线", "float3"],
+          ["boneIndices", "影响此顶点的骨骼索引（通常 4 根）", "uint8[4] 或 uint16[4]"],
+          ["boneWeights", "每根骨骼的权重（总和为 1.0）", "float4"]
+        ]},
+        {"type": "heading", "level": 2, "text": "线性混合蒙皮（LBS）"},
+        {"type": "paragraph", "text": "线性混合蒙皮（Linear Blend Skinning，LBS）是最经典的蒙皮算法。公式如下："},
+        {"type": "code-block", "language": "typescript", "code": "// LBS 蒙皮公式\n// finalPos = sum( w[i] * (boneWorld[i] * invBindMatrix[i]) * restPos )\n//\n// 其中:\n//   w[i]       = 第 i 根骨骼的权重\n//   boneWorld[i] = 第 i 根骨骼当前帧的世界矩阵\n//   invBindMatrix[i] = 第 i 根骨骼的逆绑定矩阵\n//   restPos    = 顶点在绑定姿态下的初始位置\n//\n// skinMatrix[i] = boneWorld[i] * invBindMatrix[i]\n// finalPos = sum( w[i] * skinMatrix[i] * restPos )\n//\n// 对于最多 4 根骨骼影响的顶点:\n// finalPos = w0*M0*restPos + w1*M1*restPos + w2*M2*restPos + w3*M3*restPos"},
+        {"type": "paragraph", "text": "skinMatrix = boneWorld * invBindMatrix 是蒙皮的核心矩阵。它表示\"从绑定姿态到当前姿态的变换\"。invBindMatrix 将顶点从模型空间变换到骨骼局部空间，boneWorld 再将它变换回当前姿态的模型空间。"},
+        {"type": "heading", "level": 3, "text": "权重的影响"},
+        {"type": "list", "items": [
+          "权重为 1.0 的顶点完全跟随对应骨骼移动",
+          "权重为 0.0 的顶点不受该骨骼影响",
+          "关节处的顶点通常由两根骨骼共享权重（如 0.5/0.5），产生平滑过渡",
+          "权重总和必须为 1.0，否则模型会出现拉伸或压缩",
+          "常见限制是每个顶点最多受 4 根骨骼影响（GPU 硬件限制）"
+        ]},
+        {"type": "heading", "level": 3, "text": "蒙皮矩阵的预乘优化"},
+        {"type": "paragraph", "text": "在实际实现中，skinMatrix 通常会被预计算并存储在 uniform 数组中，着色器只需要做一次矩阵-向量乘法和加权求和。对于 N 个顶点、B 根骨骼的模型，预乘将每帧的计算从 O(N*B*64) 降为 O(B*64 + N*B*16)。"},
+        {"type": "note", "text": "LBS 存在一个经典问题——\"candy wrapper\"（糖果纸）效果：当骨骼大幅旋转时，关节处会出现不自然的塌陷。DQS（双四元数蒙皮）可以缓解这个问题，但计算成本更高。"}
+      ]
+    },
+    {
+      "id": "D3-2-2",
+      "title": "CPU 蒙皮 vs GPU 蒙皮",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "CPU 蒙皮"},
+        {"type": "paragraph", "text": "CPU 蒙皮在 JavaScript/TypeScript 端逐顶点计算蒙皮变换。优点是灵活性高（可以读取变形后的顶点数据用于碰撞检测等），缺点是性能较差，大量顶点时 CPU 开销巨大。"},
+        {"type": "paragraph", "text": "CPU 蒙皮的典型流程："},
+        {"type": "list", "items": [
+          "1. 遍历所有骨骼，计算每根骨骼的 skinMatrix = boneWorld * invBindMatrix",
+          "2. 遍历所有顶点，对每个顶点取 4 个骨骼索引和权重",
+          "3. 加权求和：finalPos = w0*M0*pos + w1*M1*pos + w2*M2*pos + w3*M3*pos",
+          "4. 将结果写入顶点缓冲区"
+        ]},
+        {"type": "heading", "level": 2, "text": "GPU 蒙皮"},
+        {"type": "paragraph", "text": "GPU 蒙皮将蒙皮计算移到顶点着色器中执行。骨骼矩阵以 uniform 或纹理的形式传入 GPU，每个顶点的蒙皮在着色器中完成。这是现代游戏引擎的主流方案。"},
+        {"type": "paragraph", "text": "GPU 蒙皮的两种数据传递方式："},
+        {"type": "table", "headers": ["方式", "骨骼数量限制", "适用场景", "说明"], "rows": [
+          ["Uniform 数组", "约 50-120 根", "中小型角色", "骨骼矩阵作为 mat4[] uniform 传入着色器"],
+          ["纹理采样", "无限制", "大型角色/多实例", "骨骼矩阵存入浮点纹理，着色器通过 texelFetch 采样"]
+        ]},
+        {"type": "heading", "level": 3, "text": "Cocos 的双模式架构"},
+        {"type": "paragraph", "text": "Cocos Creator 通过 SkinnedMeshRenderer 支持两种蒙皮模型：SkinningModel（实时计算）和 BakedSkinningModel（预烘焙）。"},
+        {"type": "code-reference", "file": "cocos/3d/skinned-mesh-renderer/skinned-mesh-renderer.ts", "startLine": 49, "endLine": 102, "caption": "SkinnedMeshRenderer：蒙皮网格渲染器，持有 skeleton、skinningRoot 等核心属性", "highlights": [49, 50, 51, 54, 63, 78, 89, 101]},
+        {"type": "paragraph", "text": "skinningRoot 是骨骼根节点的引用，对应控制此模型的 SkeletalAnimation 组件所在节点。model 属性根据模式返回 SkinningModel（实时）或 BakedSkinningModel（烘焙）。"},
+        {"type": "code-reference", "file": "cocos/3d/skinned-mesh-renderer/skinned-mesh-renderer.ts", "startLine": 129, "endLine": 145, "caption": "setUseBakedAnimation：切换蒙皮模式——销毁旧模型，创建新的 BakedSkinningModel 或 SkinningModel", "highlights": [129, 130, 131, 132, 134]},
+        {"type": "heading", "level": 3, "text": "模型绑定流程"},
+        {"type": "code-reference", "file": "cocos/3d/skinned-mesh-renderer/skinned-mesh-renderer.ts", "startLine": 184, "endLine": 189, "caption": "_update：将 skeleton、skinningRoot、mesh 绑定到模型", "highlights": [184, 186, 187]},
+        {"type": "paragraph", "text": "bindSkeleton 是模型层的核心方法，它将骨骼资源、根节点和网格资源关联起来。uploadAnimation 则将动画剪辑数据上传到模型（烘焙模式下上传预计算的矩阵纹理）。"},
+        {"type": "note", "text": "在 Cocos 编辑器（非预览）模式下，FORCE_BAN_BAKED_ANIMATION 为 true，动画始终使用实时计算模式，以便编辑器可以即时预览动画效果。"}
+      ]
+    },
+    {
+      "id": "D3-2-3",
+      "title": "GPU 蒙皮着色器",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "顶点着色器中的蒙皮"},
+        {"type": "paragraph", "text": "GPU 蒙皮的核心逻辑在顶点着色器中。以下是一个典型的 WGSL 蒙皮着色器实现："},
+        {"type": "code-block", "language": "wgsl", "code": "// WGSL GPU 蒙皮着色器\nstruct SkinningUniforms {\n  jointMatrices: array<mat4x4<f32>, 128>,  // 骨骼矩阵数组\n}\n@group(0) @binding(0) var<uniform> skinning: SkinningUniforms;\n\nstruct VertexInput {\n  @location(0) position: vec3<f32>,\n  @location(1) normal: vec3<f32>,\n  @location(2) joints: vec4<u32>,      // 4 个骨骼索引\n  @location(3) weights: vec4<f32>,     // 4 个权重\n};\n\n@vertex\nfn vs_main(in: VertexInput) -> VertexOutput {\n  // 加权求和蒙皮矩阵\n  let skinMatrix =\n    skinning.jointMatrices[in.joints.x] * in.weights.x +\n    skinning.jointMatrices[in.joints.y] * in.weights.y +\n    skinning.jointMatrices[in.joints.z] * in.weights.z +\n    skinning.jointMatrices[in.joints.w] * in.weights.w;\n  \n  // 应用蒙皮变换\n  let skinnedPos = skinMatrix * vec4<f32>(in.position, 1.0);\n  let skinnedNormal = (skinMatrix * vec4<f32>(in.normal, 0.0)).xyz;\n  \n  // 继续 MVP 变换...\n  return camera.viewProjection * skinnedPos;\n}"},
+        {"type": "heading", "level": 3, "text": "骨骼矩阵纹理方案"},
+        {"type": "paragraph", "text": "当骨骼数量超过 uniform 数组限制时，引擎会将骨骼矩阵写入浮点纹理（通常宽度为骨骼数 x 4 列，高度为动画帧数），着色器通过 texelFetch 采样："},
+        {"type": "code-block", "language": "wgsl", "code": "// 使用纹理存储骨骼矩阵\n@group(0) @binding(1) var jointTexture: texture_2d<f32>;\n\nfn getJointMatrix(jointIndex: u32) -> mat4x4<f32> {\n  let col0 = textureLoad(jointTexture, vec2<u32>(jointIndex * 4u + 0u, frameIndex), 0);\n  let col1 = textureLoad(jointTexture, vec2<u32>(jointIndex * 4u + 1u, frameIndex), 0);\n  let col2 = textureLoad(jointTexture, vec2<u32>(jointIndex * 4u + 2u, frameIndex), 0);\n  let col3 = textureLoad(jointTexture, vec2<u32>(jointIndex * 4u + 3u, frameIndex), 0);\n  return mat4x4<f32>(col0, col1, col2, col3);\n}"},
+        {"type": "heading", "level": 3, "text": "预烘焙动画的 GPU 流程"},
+        {"type": "paragraph", "text": "Cocos 的 BakedSkinningModel 使用预烘焙方案：动画剪辑在加载时被预计算为每帧的骨骼矩阵数组，然后写入骨骼动画纹理（Joint Animation Texture）。运行时 GPU 通过帧索引和骨骼索引直接采样纹理获取变换矩阵，完全跳过 CPU 端的骨骼变换计算。"},
+        {"type": "list", "items": [
+          "优点：CPU 零开销，GPU 直接采样，支持大量骨骼动画角色同时渲染",
+          "缺点：不支持运行时动画混合、IK 等动态效果",
+          "内存权衡：纹理大小 = 骨骼数 x 4列 x 帧数 x 4行 x 4字节（RGBA float）"
+        ]},
+        {"type": "note", "text": "预烘焙纹理方案是 Cocos 骨骼动画高性能的秘诀。一个 50 根骨骼、300 帧的动画，纹理大小约 50*4*300*4*4 = 960KB，换来的是 CPU 零骨骼计算开销。"}
+      ]
+    },
+    {
+      "id": "D3-2-4",
+      "title": "SkinnedMeshRenderer 深入",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "组件架构"},
+        {"type": "paragraph", "text": "SkinnedMeshRenderer 继承自 MeshRenderer，是连接骨骼动画与网格渲染的桥梁。它维护以下核心关系："},
+        {"type": "list", "items": [
+          "skeleton：骨骼资源（Skeleton），包含关节路径和绑定矩阵",
+          "skinningRoot：骨骼根节点（Node），通常指向 SkeletalAnimation 组件所在节点",
+          "mesh：网格资源，包含蒙皮顶点数据（骨骼索引+权重）",
+          "associatedAnimation：关联的 SkeletalAnimation 组件实例"
+        ]},
+        {"type": "code-reference", "file": "cocos/3d/skinned-mesh-renderer/skinned-mesh-renderer.ts", "startLine": 159, "endLine": 182, "caption": "_tryBindAnimation：自动查找 skinningRoot 上的 SkeletalAnimation 组件并绑定", "highlights": [159, 160, 166, 171, 176, 177, 178]},
+        {"type": "paragraph", "text": "绑定过程会验证 skinningRoot 是否是当前节点的祖先（第 166-171 行），然后查找 skinningRoot 上的 SkeletalAnimation 组件。如果找到且启用，则调用 notifySkinnedMeshAdded 将自身注册为动画的\"用户\"。"},
+        {"type": "heading", "level": 3, "text": "动画通知机制"},
+        {"type": "paragraph", "text": "SkeletalAnimation 通过 notifySkinnedMeshAdded/notifySkinnedMeshRemoved 管理所有关联的 SkinnedMeshRenderer。当动画状态改变时（如切换动画、改变烘焙模式），它会通知所有关联的渲染器："},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 280, "endLine": 295, "caption": "notifySkinnedMeshAdded：注册蒙皮渲染器，设置烘焙模式，上传当前动画", "highlights": [280, 281, 287, 288, 292, 294]},
+        {"type": "code-reference", "file": "cocos/3d/skinned-mesh-renderer/skinned-mesh-renderer.ts", "startLine": 118, "endLine": 123, "caption": "uploadAnimation：将动画剪辑上传到模型（烘焙模式下预计算矩阵纹理）", "highlights": [118, 119, 120, 121]},
+        {"type": "heading", "level": 3, "text": "骨骼动画的烘焙模式切换"},
+        {"type": "paragraph", "text": "当 useBakedAnimation 改变时，SkeletalAnimation 会通知所有关联的 SkinnedMeshRenderer 切换模型类型："},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 356, "endLine": 376, "caption": "_applyBakeFlagChange：切换烘焙模式——更新状态、通知渲染器、管理 Socket", "highlights": [356, 357, 364, 365, 368, 369, 371, 375]},
+        {"type": "paragraph", "text": "切换到烘焙模式时（第 368-370 行），会从动画管理器中移除 Socket（因为烘焙模式下骨骼变换已固定，不需要实时同步）。切换到实时模式时（第 371-373 行），会添加 Socket 并启用骨骼变换更新。"},
+        {"type": "note", "text": "一个 SkeletalAnimation 组件可以驱动多个 SkinnedMeshRenderer。例如，一个角色可能有身体、武器、披风等独立的蒙皮网格，它们共享同一套骨骼动画。"}
+      ]
+    },
+    {
+      "id": "D3-2-5",
+      "title": "Spine 蒙皮与 Attachment",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Spine 的蒙皮概念"},
+        {"type": "paragraph", "text": "Spine 的蒙皮系统与 3D 引擎略有不同。Spine 中的\"蒙皮\"更多指的是 Attachment 的集合（Skin），而非顶点权重。每个 Skin 定义了一组 Slot-Attachment 的映射关系，切换 Skin 即可实现换装。"},
+        {"type": "paragraph", "text": "Spine 中的网格变形（Mesh Deform）使用与 3D 蒙皮相同的原理——顶点绑定到骨骼并使用权重插值。Spine 的 Mesh Attachment 支持 FFD（Free-Form Deformation），允许在动画中直接编辑网格顶点位置。"},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 1061, "endLine": 1072, "caption": "setSkin：切换 Spine 皮肤（换装）", "highlights": [1061, 1063, 1064, 1065, 1066, 1067, 1071]},
+        {"type": "heading", "level": 3, "text": "Spine 的缓存模式"},
+        {"type": "paragraph", "text": "Spine 在 Cocos 中提供三种动画缓存模式："},
+        {"type": "table", "headers": ["模式", "枚举值", "说明"], "rows": [
+          ["REALTIME", "0", "实时计算，支持所有 Spine 功能（混合、事件、网格变形）"],
+          ["SHARED_CACHE", "1", "共享缓存，多个相同 SkeletonData 的实例共享动画帧缓存"],
+          ["PRIVATE_CACHE", "2", "私有缓存，每个实例独立缓存动画帧数据"]
+        ]},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 70, "endLine": 92, "caption": "SpineAnimationCacheMode：Spine 动画缓存模式枚举", "highlights": [70, 74, 80, 86, 91]},
+        {"type": "heading", "level": 3, "text": "局部换装"},
+        {"type": "paragraph", "text": "Spine 支持局部换装——通过 setSlotTexture 为特定 Slot 替换纹理，而不需要创建新的 Skin："},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 1920, "endLine": 1942, "caption": "setSlotTexture：为 Slot 设置新纹理实现局部换装", "highlights": [1920, 1921, 1925, 1926, 1933, 1934, 1938]},
+        {"type": "paragraph", "text": "局部换装流程：1) 查找目标 Slot；2) 调用 resizeSlotRegion 调整 Attachment 的纹理区域大小；3) 调用 setSlotTexture 替换纹理 UUID。注意：缓存模式下不支持局部换装。"},
+        {"type": "note", "text": "Spine 的 Skin 系统非常强大，支持按名称组合多个 Skin（additive skins），可以在不创建新资产的情况下混合多套外观。"}
+      ]
+    }
+  ],
+  "files": {
+    "cocos/3d/skinned-mesh-renderer/skinned-mesh-renderer.ts": "蒙皮网格渲染器组件",
+    "cocos/3d/skeletal-animation/skeletal-animation.ts": "骨骼动画组件（烘焙模式切换）",
+    "cocos/animation/skeletal-animation-utils.ts": "骨骼变换缓存",
+    "cocos/animation/animation-clip.ts": "动画剪辑烘焙",
+    "cocos/spine/skeleton.ts": "Spine 骨骼动画（Skin/Attachment/缓存模式）"
+  }
+}

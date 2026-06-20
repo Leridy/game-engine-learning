@@ -1,0 +1,137 @@
+{
+  "title": "W4D1: Cocos GFX 抽象层",
+  "chapters": [
+    {
+      "id": "D4-1-1",
+      "title": "GFX 抽象层的设计哲学",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "为什么要抽象图形 API"},
+        {"type": "paragraph", "text": "现代游戏引擎需要同时支持多种图形后端——WebGL2、WebGPU、Vulkan、Metal、DirectX 11/12 等。每种 API 的接口风格、资源生命周期管理、同步模型都截然不同。如果让上层渲染逻辑直接依赖某种具体 API，切换平台就需要大量重写。"},
+        {"type": "paragraph", "text": "Cocos Creator 的解决方案是 GFX（Graphics Foundation）抽象层。GFX 定义了一组与平台无关的接口，覆盖设备管理、资源创建、命令录制、状态管理等核心功能。所有上层代码（渲染管线、材质系统、2D 渲染器）只和 GFX 接口打交道，完全不关心底层是 WebGL 还是 Vulkan。"},
+        {"type": "heading", "level": 3, "text": "GFX 的设计原则"},
+        {"type": "list", "items": [
+          "后端无关：上层代码只依赖 GFX 抽象接口，不直接调用任何平台 API",
+          "资源统一：Buffer、Texture、Shader 等资源有统一的创建和销毁接口",
+          "命令缓冲：所有 GPU 操作通过 CommandBuffer 录制，支持多线程命令录制",
+          "描述符绑定：采用 Vulkan 风格的 DescriptorSet 模型，兼容所有现代 API",
+          "内存屏障：显式的 Barrier 管理，为 Vulkan/Metal 等显式 API 提供原生支持"
+        ]},
+        {"type": "heading", "level": 3, "text": "GFX 与各平台后端的关系"},
+        {"type": "table", "headers": ["GFX 抽象", "WebGL2 后端", "WebGPU 后端", "Vulkan 后端"], "rows": [
+          ["Device", "WebGL2Device", "WebGPUDevice", "VulkanDevice"],
+          ["Buffer", "WebGL2Buffer", "WebGPUBuffer", "VulkanBuffer"],
+          ["Texture", "WebGL2Texture", "WebGPUTexture", "VulkanTexture"],
+          ["Shader", "WebGL2Shader", "WebGPUShader", "VulkanShader"],
+          ["CommandBuffer", "WebGL2CmdBuff", "WebGPUCmdBuff", "VulkanCmdBuff"],
+          ["RenderPass", "WebGL2RenderPass", "WebGPURenderPass", "VulkanRenderPass"]
+        ]},
+        {"type": "note", "text": "GFX 的设计思想与 bgfx、The-Forge 等跨平台图形框架非常相似——核心目标都是在不牺牲性能的前提下，为上层提供统一的图形编程接口。"}
+      ]
+    },
+    {
+      "id": "D4-1-2",
+      "title": "Device：抽象工厂模式",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Device 是 GFX 的核心入口"},
+        {"type": "paragraph", "text": "Device 类是 GFX 抽象层的核心——它采用抽象工厂模式，负责创建所有 GPU 资源对象。每个平台后端都需要继承 Device 并实现所有抽象方法。上层代码通过 Device 创建 Buffer、Texture、Shader 等资源，完全不关心底层实现。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/device.ts", "startLine": 55, "endLine": 64, "caption": "Device 抽象类定义：所有 GPU 资源的创建入口", "highlights": [55, 62, 63]},
+        {"type": "paragraph", "text": "Device 通过 getter 暴露当前渲染 API 类型（gfxAPI）、默认命令队列（queue）、默认命令缓冲（commandBuffer）以及渲染统计信息（draw calls、三角形数量、实例数量等）。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/device.ts", "startLine": 154, "endLine": 189, "caption": "Device 的内部状态：API 类型、渲染统计、能力描述、采样器缓存等", "highlights": [155, 165, 166, 169, 175, 177]},
+        {"type": "heading", "level": 3, "text": "资源创建的抽象方法"},
+        {"type": "paragraph", "text": "Device 定义了一整套 create 方法，每个方法对应一种 GPU 资源类型。这些方法都是 abstract 的，由各平台后端实现："},
+        {"type": "code-reference", "file": "cocos/gfx/base/device.ts", "startLine": 221, "endLine": 256, "caption": "Device 的资源创建接口：CommandBuffer、Swapchain、Buffer、Texture、DescriptorSet、Shader", "highlights": [221, 228, 235, 242, 249, 256]},
+        {"type": "heading", "level": 3, "text": "帧生命周期管理"},
+        {"type": "paragraph", "text": "Device 还定义了帧的生命周期接口：acquire() 获取下一帧的交换链缓冲，present() 将当前帧提交上屏，flushCommands() 实际执行录制好的命令缓冲。这三步构成了每帧的 GPU 工作提交流程。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/device.ts", "startLine": 194, "endLine": 214, "caption": "Device 的帧生命周期：initialize、destroy、acquire、present、flushCommands", "highlights": [194, 196, 202, 208, 214]}
+      ]
+    },
+    {
+      "id": "D4-1-3",
+      "title": "Buffer 资源抽象",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "GFX Buffer 的设计"},
+        {"type": "paragraph", "text": "Buffer 是 GFX 中最基本的资源类型之一，用于管理 GPU 端的线性内存。它可以存储顶点数据、索引数据、Uniform 常量等。Cocos 的 Buffer 抽象了 usage（使用方式）、memUsage（内存位置）、size（大小）、stride（步长）等核心属性。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/buffer.ts", "startLine": 43, "endLine": 74, "caption": "Buffer 抽象类：定义了 usage、memUsage、size、stride 等核心属性", "highlights": [43, 48, 56, 64, 72]},
+        {"type": "heading", "level": 3, "text": "Buffer 的使用方式和内存位置"},
+        {"type": "table", "headers": ["属性", "枚举值", "说明"], "rows": [
+          ["BufferUsageBit.VERTEX", "顶点缓冲", "存储顶点位置、法线、UV 等数据"],
+          ["BufferUsageBit.INDEX", "索引缓冲", "存储三角形索引数据"],
+          ["BufferUsageBit.UNIFORM", "常量缓冲", "存储着色器 Uniform 变量"],
+          ["BufferUsageBit.STORAGE", "存储缓冲", "用于通用 GPU 计算"],
+          ["BufferUsageBit.TRANSFER_SRC", "传输源", "作为数据拷贝的源"],
+          ["BufferUsageBit.TRANSFER_DST", "传输目标", "作为数据拷贝的目标"]
+        ]},
+        {"type": "code-reference", "file": "cocos/gfx/base/buffer.ts", "startLine": 88, "endLine": 105, "caption": "Buffer 的内部状态和构造函数", "highlights": [89, 91, 93, 95, 97, 104]},
+        {"type": "heading", "level": 3, "text": "Buffer 的核心操作"},
+        {"type": "paragraph", "text": "Buffer 定义了三个核心的抽象操作：initialize() 初始化缓冲、destroy() 销毁缓冲、resize() 动态调整缓冲大小、update() 更新缓冲数据。其中 update() 接受 BufferSource 类型（ArrayBuffer 或 ArrayBufferView），直接将数据上传到 GPU。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/buffer.ts", "startLine": 107, "endLine": 125, "caption": "Buffer 的抽象方法：initialize、destroy、resize、update", "highlights": [107, 109, 116, 124]},
+        {"type": "note", "text": "在 WebGL2 后端中，Buffer::update() 对应 gl.bufferData() 或 gl.bufferSubData()。在 WebGPU 后端中，对应 device.queue.writeBuffer()。上层代码完全不感知这些差异。"}
+      ]
+    },
+    {
+      "id": "D4-1-4",
+      "title": "Texture 资源抽象",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "GFX Texture 的设计"},
+        {"type": "paragraph", "text": "Texture 是 GFX 中最复杂的资源类型。与 Buffer 的线性内存不同，Texture 具有类型（2D、3D、Cube、Array）、格式（RGBA8、RGBA32F、Depth24 等）、Mipmap 层级、采样数等维度信息。Cocos 的 Texture 抽象了所有这些属性。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/texture.ts", "startLine": 43, "endLine": 98, "caption": "Texture 抽象类：定义了 type、usage、format、width、height、depth、layerCount、levelCount、samples 等属性", "highlights": [43, 48, 56, 64, 72, 80, 88, 96]},
+        {"type": "heading", "level": 3, "text": "Texture 的类型和用途"},
+        {"type": "table", "headers": ["TextureType", "说明", "典型用途"], "rows": [
+          ["TEX2D", "二维纹理", "普通贴图、渲染目标"],
+          ["TEX3D", "三维纹理", "体积雾、3D 噪声"],
+          ["CUBE", "立方体纹理", "天空盒、环境反射"],
+          ["TEX2D_ARRAY", "二维纹理数组", "Shadow Atlas、地形层"]
+        ]},
+        {"type": "heading", "level": 3, "text": "Texture 与 TextureView"},
+        {"type": "paragraph", "text": "Cocos GFX 区分了 Texture（纹理本身）和 TextureView（纹理视图）。Texture 拥有实际的 GPU 内存，而 TextureView 是对 Texture 某个子范围（特定 Mipmap 层级、特定数组层）的引用。这与 Vulkan 的 VkImage / VkImageView 关系一致。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/texture.ts", "startLine": 156, "endLine": 173, "caption": "Texture 的内部状态：info（纹理信息）、viewInfo（视图信息）、isTextureView 标志", "highlights": [157, 159, 163, 167, 168]},
+        {"type": "code-reference", "file": "cocos/gfx/base/texture.ts", "startLine": 171, "endLine": 183, "caption": "Texture 的核心抽象方法：initialize、destroy、resize", "highlights": [171, 173, 175, 183]},
+        {"type": "heading", "level": 3, "text": "Mipmap 层级计算"},
+        {"type": "paragraph", "text": "Texture 提供了一个静态工具方法 getLevelCount()，用于根据纹理宽高计算 Mipmap 链的最大层数。公式为 floor(log2(max(width, height)))。例如 1024x1024 的纹理有 10 级 Mipmap。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/texture.ts", "startLine": 190, "endLine": 192, "caption": "getLevelCount：计算 Mipmap 层级数", "highlights": [190, 191]}
+      ]
+    },
+    {
+      "id": "D4-1-5",
+      "title": "Shader 资源抽象",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "GFX Shader 的设计"},
+        {"type": "paragraph", "text": "Shader 是连接 CPU 端渲染逻辑和 GPU 端着色程序的桥梁。Cocos 的 Shader 抽象包含了着色器阶段（vertex/fragment）、输入属性（attributes）、Uniform 块（blocks）和采样器（samplers）的完整描述。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/shader.ts", "startLine": 31, "endLine": 69, "caption": "Shader 抽象类：包含 name、stages、attributes、blocks、samplers 等属性", "highlights": [31, 32, 36, 40, 44, 48, 63]},
+        {"type": "heading", "level": 3, "text": "Shader 的属性结构"},
+        {"type": "table", "headers": ["属性", "类型", "说明"], "rows": [
+          ["name", "string", "着色器名称，用于调试"],
+          ["stages", "ShaderStage[]", "着色器阶段列表（vertex、fragment）"],
+          ["attributes", "Attribute[]", "顶点输入属性描述"],
+          ["blocks", "UniformBlock[]", "Uniform 块描述（CBuffer）"],
+          ["samplers", "UniformSampler[]", "纹理采样器描述"]
+        ]},
+        {"type": "heading", "level": 3, "text": "着色器跨平台编译"},
+        {"type": "paragraph", "text": "Cocos 使用自定义的着色器语言（基于 GLSL 300 es），通过内置的着色器编译器在运行时将其转换为目标平台的着色器代码。WebGL2 后端直接使用 GLSL，WebGPU 后端编译为 WGSL，Vulkan 后端编译为 SPIR-V。这个过程对上层完全透明。"},
+        {"type": "code-block", "language": "typescript", "code": "// Cocos 着色器编译流程示意\n// 1. Cocos Effect 文件 (.effect) 定义着色器源码（基于 GLSL）\n// 2. 编辑器预编译 → 生成 .effect.bin（序列化的 ShaderInfo）\n// 3. 运行时加载 → 根据当前后端选择编译路径\n//\n//   GLSL 源码\n//       |\n//       +-- WebGL2 → 直接使用 gl.compileShader()\n//       +-- WebGPU → Naga 转译为 WGSL → device.createShaderModule()\n//       +-- Vulkan  → glslang 转译为 SPIR-V → vkCreateShaderModule()"},
+        {"type": "note", "text": "Cocos 3.8 引入了 Effect 编译器的预处理优化，将着色器的解析和编译提前到构建阶段，运行时只做平台特定的最终编译，大幅减少了游戏启动时的着色器编译耗时。"}
+      ]
+    },
+    {
+      "id": "D4-1-6",
+      "title": "DefaultResource 与资源管理策略",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "默认资源的意义"},
+        {"type": "paragraph", "text": "GFX 设备初始化时会创建一组默认资源（DefaultResource），包括默认的 2D 纹理、Cube 纹理、3D 纹理和 2D 数组纹理。这些默认纹理都是 2x2 的白色像素，用于在材质未指定纹理时提供安全的 fallback，避免着色器采样未绑定纹理时的未定义行为。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/device.ts", "startLine": 408, "endLine": 440, "caption": "DefaultResource：创建默认的 2D、Cube、3D、2DArray 白色纹理", "highlights": [408, 414, 416, 421, 433]},
+        {"type": "heading", "level": 3, "text": "Sampler 缓存机制"},
+        {"type": "paragraph", "text": "Device 内部维护了一个 Sampler 缓存（_samplers Map），相同的采样器参数只创建一次。这是因为采样器是不可变对象（immutable），相同的过滤模式和寻址模式组合可以安全复用。这避免了重复创建大量相同的采样器对象。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/device.ts", "startLine": 181, "endLine": 188, "caption": "Device 内部的缓存 Map：samplers、generalBarriers、textureBarriers、bufferBarriers", "highlights": [181, 183, 185, 187]},
+        {"type": "heading", "level": 3, "text": "内存屏障管理"},
+        {"type": "paragraph", "text": "GFX 也缓存了 Barrier 对象。在 Vulkan 等显式 API 中，资源状态转换需要通过 Barrier 来同步。GFX 将 Barrier 也做成了缓存模式——相同的 Barrier 参数只创建一次，通过 Map 查找复用。WebGL2 后端中这些 Barrier 是空操作（noop），但在 Vulkan 后端中会映射为真实的管线屏障。"},
+        {"type": "note", "text": "GFX 的资源管理策略可以总结为：创建走工厂方法、销毁走虚方法、缓存走 Map 查找。这种模式既保证了跨平台一致性，又避免了不必要的重复分配。"}
+      ]
+    }
+  ],
+  "files": {
+    "cocos/gfx/base/device.ts": "GFX 设备抽象类 — 所有 GPU 资源的创建入口，定义了 initialize/destroy/acquire/present 帧生命周期",
+    "cocos/gfx/base/buffer.ts": "GFX 缓冲抽象 — 定义了 Buffer 的 usage/memUsage/size/stride 属性和 initialize/resize/update 操作",
+    "cocos/gfx/base/texture.ts": "GFX 纹理抽象 — 定义了 Texture 的 type/format/width/height/depth/levelCount 属性和 TextureView 机制",
+    "cocos/gfx/base/shader.ts": "GFX 着色器抽象 — 定义了 Shader 的 stages/attributes/blocks/samplers 结构"
+  }
+}

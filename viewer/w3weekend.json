@@ -1,0 +1,172 @@
+{
+  "title": "W3周末: 竞品骨骼动画对标",
+  "chapters": [
+    {
+      "id": "D3-W-1",
+      "title": "Unity 2D Animation",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Unity 的 2D 骨骼动画方案"},
+        {"type": "paragraph", "text": "Unity 通过 2D Animation 包提供 2D 骨骼动画支持。核心组件是 SpriteSkin，它将骨骼变换应用到 Sprite 的网格顶点上。与 Cocos 的 SkinnedMeshRenderer 类似，SpriteSkin 也需要绑定骨骼根节点。"},
+        {"type": "table", "headers": ["Unity 组件", "Cocos 对应", "说明"], "rows": [
+          ["SpriteSkin", "SkinnedMeshRenderer", "蒙皮网格渲染器，将骨骼变换应用到网格"],
+          ["Bone (2D)", "Node (骨骼子节点)", "2D 骨骼节点"],
+          ["SkeletonAsset", "Skeleton", "骨骼资源（关节路径+绑定矩阵）"],
+          ["SpriteResolver", "sp.Skeleton (Skin)", "运行时换装/皮肤切换"],
+          ["Animation (Animator)", "SkeletalAnimation / AnimationController", "动画播放与状态管理"]
+        ]},
+        {"type": "heading", "level": 3, "text": "Unity 2D Animation 的特点"},
+        {"type": "list", "items": [
+          "Sprite Editor 内置骨骼编辑和权重绘制工具",
+          "支持自动权重计算（几何距离）和手动权重绘制",
+          "SpriteSkin 使用 Unity 的 Burst Compiler 和 Job System 进行并行蒙皮计算",
+          "支持 Mesh 网格变形（Free Form Deformation）",
+          "与 Unity Animator/AnimationClip 深度集成",
+          "IK Manager 2D 提供内置的 2D IK 约束"
+        ]},
+        {"type": "heading", "level": 3, "text": "与 Cocos 的对比"},
+        {"type": "table", "headers": ["特性", "Unity 2D Animation", "Cocos Creator"], "rows": [
+          ["骨骼编辑", "Sprite Editor 内置", "依赖外部工具（Spine/DragonBones）"],
+          ["权重绘制", "内置可视化工具", "依赖外部工具"],
+          ["GPU 蒙皮", "Burst+Job 并行 CPU", "GPU 着色器蒙皮"],
+          ["缓存模式", "无内置缓存", "支持烘焙纹理缓存"],
+          ["IK 支持", "IK Manager 2D", "依赖 Spine 运行时"],
+          ["运行时性能", "Burst 优化的 CPU 蒙皮", "GPU 蒙皮 + 烘焙缓存"]
+        ]},
+        {"type": "note", "text": "Unity 的 2D Animation 包适合需要在引擎内完成骨骼绑定的项目。Cocos 的方案更适合使用 Spine/DragonBones 等专业 2D 动画工具的工作流。两种方案各有优劣，选择取决于团队的工具链。"}
+      ]
+    },
+    {
+      "id": "D3-W-2",
+      "title": "Cocos Creator 骨骼动画全貌",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Cocos 的 3D 骨骼动画管线"},
+        {"type": "paragraph", "text": "Cocos Creator 的 3D 骨骼动画由以下核心组件协作完成："},
+        {"type": "table", "headers": ["组件", "职责", "文件路径"], "rows": [
+          ["SkeletalAnimation", "动画播放、烘焙模式管理、Socket 挂点", "cocos/3d/skeletal-animation/"],
+          ["SkinnedMeshRenderer", "蒙皮网格渲染，连接骨骼与网格", "cocos/3d/skinned-mesh-renderer/"],
+          ["Skeleton", "骨骼资源（关节路径+绑定矩阵）", "cocos/3d/assets/skeleton.ts"],
+          ["AnimationClip", "动画数据（Track/Channel/Curve）", "cocos/animation/animation-clip.ts"],
+          ["AnimationState", "动画状态管理与求值", "cocos/animation/animation-state.ts"],
+          ["AnimationController", "Marionette 动画图控制器", "cocos/animation/marionette/"]
+        ]},
+        {"type": "heading", "level": 3, "text": "Cocos 的 2D 骨骼动画方案"},
+        {"type": "paragraph", "text": "Cocos Creator 的 2D 骨骼动画主要通过 Spine 和 DragonBones 运行时实现："},
+        {"type": "list", "items": [
+          "sp.Skeleton：Spine 骨骼动画组件，支持实时/缓存模式、Skin 切换、Socket 挂点",
+          "SpineAnimationCacheMode：REALTIME/SHARED_CACHE/PRIVATE_CACHE 三种缓存策略",
+          "DragonBones：通过 dragonBones 命名空间提供 DragonBones 运行时支持",
+          "内置动画编辑器：支持简单的帧动画和属性动画（不涉及骨骼）"
+        ]},
+        {"type": "heading", "level": 3, "text": "数据流总结"},
+        {"type": "code-block", "language": "text", "code": "Cocos 骨骼动画数据流:\n\n[模型文件 glTF/FBX] --> [Skeleton 资产] --> [SkinnedMeshRenderer]\n                            |                        |\n                            | bindposes              | bindSkeleton()\n                            | joints                 | uploadAnimation()\n                            v                        v\n[动画文件] --> [AnimationClip] --> [AnimationState] --> [求值器]\n                    |                    |                |\n                    | tracks             | weight         | evaluate(time)\n                    | duration           | time           |\n                    v                    v                v\n              [Track/Channel] --> [BlendStateBuffer] --> [最终姿态]\n                                      |                     |\n                                      | 混合               | 应用到节点\n                                      v                     v\n                              [PoseOutput] ---------> [Node Transform]\n                                                           |\n                                                           | GPU 蒙皮\n                                                           v\n                                                      [顶点着色器]\n                                                           |\n                                                           v\n                                                      [渲染输出]"},
+        {"type": "note", "text": "理解数据流是调试骨骼动画问题的关键。当动画异常时，可以从数据源（AnimationClip）-> 求值（AnimationState）-> 混合（BlendStateBuffer）-> 应用（Node Transform）-> 渲染（GPU）逐层排查。"}
+      ]
+    },
+    {
+      "id": "D3-W-3",
+      "title": "Godot 骨骼动画",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Godot 的 2D 骨骼系统"},
+        {"type": "paragraph", "text": "Godot 使用 Bone2D 和 Skeleton2D 节点实现 2D 骨骼动画。与 Cocos 复用 Node 不同，Godot 有专门的骨骼节点类型。"},
+        {"type": "table", "headers": ["Godot 节点", "Cocos 对应", "说明"], "rows": [
+          ["Skeleton2D", "SkeletalAnimation 根节点", "2D 骨骼容器，管理所有 Bone2D"],
+          ["Bone2D", "Node（骨骼子节点）", "单根骨骼，具有 rest 姿态"],
+          ["Polygon2D", "MeshRenderer（2D）", "带骨骼权重的多边形网格"],
+          ["AnimationPlayer", "Animation/AnimationController", "动画播放器"],
+          ["AnimationTree", "AnimationController (Marionette)", "动画状态机与混合树"]
+        ]},
+        {"type": "heading", "level": 3, "text": "Godot 的特点"},
+        {"type": "list", "items": [
+          "Bone2D 使用 Transform2D（3x3 仿射矩阵），与 2D 坐标系天然契合",
+          "Skeleton2D 自动处理骨骼层级的世界变换计算",
+          "Polygon2D 支持手动设置骨骼权重（通过 editor 绘制）",
+          "AnimationTree 支持状态机（StateMachine）和混合树（BlendTree）",
+          "Godot 4.x 引入了骨骼变形器（SkeletonModifier）用于程序化骨骼控制",
+          "内置 IK 节点（Bone2D IK）"
+        ]},
+        {"type": "heading", "level": 3, "text": "与 Cocos 的关键差异"},
+        {"type": "table", "headers": ["方面", "Godot", "Cocos Creator"], "rows": [
+          ["骨骼节点", "专用 Bone2D 类型", "复用通用 Node"],
+          ["权重编辑", "内置 Polygon2D 权重绘制", "依赖外部工具"],
+          ["动画状态机", "AnimationTree（内置）", "Marionette（3.7+）"],
+          ["IK 支持", "内置 Bone2D IK", "依赖 Spine 运行时"],
+          ["Spine 集成", "社区插件", "官方集成"],
+          ["GPU 蒙皮", "2D 不支持（CPU 蒙皮）", "支持 GPU 蒙皮"]
+        ]},
+        {"type": "note", "text": "Godot 的 2D 骨骼系统设计更\"原生\"——有专门的骨骼节点和内置的权重工具。Cocos 的设计更\"工具链友好\"——依赖 Spine/DragonBones 等专业工具，但运行时性能更强（GPU 蒙皮 + 缓存模式）。"}
+      ]
+    },
+    {
+      "id": "D3-W-4",
+      "title": "Spine 运行时深度分析",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Spine 运行时架构"},
+        {"type": "paragraph", "text": "Spine 运行时是一个独立的 C++ 库（编译为 WASM 或原生库），Cocos 通过绑定层与其交互。核心类包括 spine.SkeletonData（数据）、spine.Skeleton（实例状态）和 spine.AnimationState（动画播放）。"},
+        {"type": "table", "headers": ["Spine 类", "职责", "生命周期"], "rows": [
+          ["spine.SkeletonData", "骨骼数据（骨骼/插槽/皮肤/动画定义）", "资产级别，多个实例共享"],
+          ["spine.Skeleton", "骨架实例（当前姿态/插槽状态）", "组件级别，每个 sp.Skeleton 一个"],
+          ["spine.AnimationState", "动画状态管理（播放/混合/事件）", "组件级别，与 Skeleton 配对"],
+          ["spine.AnimationStateData", "动画混合配置（setMix）", "数据级别，可共享"],
+          ["spine.TrackEntry", "单个动画轨道的播放状态", "临时，随动画创建销毁"]
+        ]},
+        {"type": "heading", "level": 3, "text": "Cocos 与 Spine 的交互"},
+        {"type": "paragraph", "text": "Cocos 的 sp.Skeleton 组件通过 spine.SkeletonInstance（C++ 绑定）与 Spine 运行时交互："},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 331, "endLine": 344, "caption": "构造函数：创建 SkeletonInstance 实例并配置缓存模式", "highlights": [331, 338, 339, 340, 341, 343]},
+        {"type": "paragraph", "text": "非 JSB（非原生绑定）环境下，直接创建 spine.SkeletonInstance 的 JS 实例。JSB 环境下通过 C++ 绑定调用原生 Spine 运行时。"},
+        {"type": "heading", "level": 3, "text": "Spine 动画播放流程"},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 947, "endLine": 989, "caption": "setAnimation：设置当前动画——缓存模式使用 AnimationCache，实时模式调用 Spine 运行时", "highlights": [947, 959, 960, 961, 966, 967, 968, 980, 984, 985, 986]},
+        {"type": "paragraph", "text": "缓存模式和实时模式的播放路径完全不同：缓存模式通过 SkeletonCache 获取预计算的动画帧；实时模式通过 spine.SkeletonInstance.setAnimation 直接驱动 Spine 运行时。"},
+        {"type": "heading", "level": 3, "text": "Spine 的事件系统"},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 1770, "endLine": 1902, "caption": "Spine 事件监听器：start/end/complete/event 等完整的事件体系", "highlights": [1770, 1783, 1803, 1822, 1832, 1844, 1864, 1884, 1900]},
+        {"type": "paragraph", "text": "Spine 的事件系统支持全局监听器和 per-TrackEntry 监听器。全局监听器通过 setStartListener/setEndListener 等方法设置；per-TrackEntry 监听器通过 setTrackStartListener 等方法为单个动画轨道设置。"},
+        {"type": "note", "text": "Spine 运行时版本需要与 Spine 编辑器版本匹配。Cocos Creator 支持 Spine 最高到 3.8.99 版本。升级 Spine 版本时需要同时更新编辑器和运行时。"}
+      ]
+    },
+    {
+      "id": "D3-W-5",
+      "title": "引擎对比总结与选型建议",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "四大引擎骨骼动画能力对比"},
+        {"type": "table", "headers": ["能力", "Unity", "Cocos Creator", "Godot", "Spine（独立）"], "rows": [
+          ["3D 骨骼动画", "完整（Mecanim + GPU 蒙皮）", "完整（GPU 蒙皮 + 烘焙）", "完整（AnimationPlayer）", "不适用"],
+          ["2D 骨骼动画", "2D Animation 包", "Spine/DragonBones 集成", "Bone2D/Skeleton2D", "核心能力"],
+          ["内置骨骼编辑", "Sprite Editor", "无（依赖外部工具）", "Polygon2D 权重绘制", "Spine Editor"],
+          ["IK 支持", "IK Manager 2D/3D", "依赖 Spine", "内置 Bone2D IK", "内置 IK 约束"],
+          ["动画状态机", "Animator Controller", "Marionette 动画图", "AnimationTree", "AnimationState"],
+          ["GPU 蒙皮", "支持（3D）", "支持（3D + 烘焙缓存）", "仅 3D", "不适用"],
+          ["缓存优化", "无内置", "预烘焙纹理缓存", "无内置", "AnimationCache"],
+          ["运行时性能", "Burst + Job System", "GPU 蒙皮 + 烘焙", "GDScript/C++ 扩展", "C++ 原生"],
+          ["换装系统", "Sprite Resolver", "Spine Skin + Slot", "手动实现", "内置 Skin 系统"],
+          ["开源", "否", "是（MIT）", "是（MIT）", "否（运行时免费）"]
+        ]},
+        {"type": "heading", "level": 3, "text": "选型建议"},
+        {"type": "heading", "level": 3, "text": "选择 Cocos Creator 的场景"},
+        {"type": "list", "items": [
+          "需要高性能 2D 骨骼动画（GPU 蒙皮 + 缓存模式）",
+          "项目使用 Spine 或 DragonBones 作为美术工具链",
+          "需要开源引擎（MIT 许可证）",
+          "面向移动端和 Web 的跨平台项目",
+          "需要预烘焙动画以降低运行时 CPU 开销"
+        ]},
+        {"type": "heading", "level": 3, "text": "选择 Unity 的场景"},
+        {"type": "list", "items": [
+          "需要在引擎内完成骨骼绑定和权重绘制",
+          "项目同时涉及 2D 和 3D 内容",
+          "团队已有 Unity 生态的工具链和资产",
+          "需要 Burst Compiler 的极致 CPU 性能优化"
+        ]},
+        {"type": "heading", "level": 3, "text": "选择 Godot 的场景"},
+        {"type": "list", "items": [
+          "预算有限，需要完全免费开源的引擎",
+          "2D 游戏为主，需要原生的骨骼节点系统",
+          "偏好内置工具而非外部依赖",
+          "需要轻量级引擎（Godot 编辑器体积小）"
+        ]},
+        {"type": "heading", "level": 3, "text": "数据流对比总结"},
+        {"type": "code-block", "language": "text", "code": "Cocos 骨骼动画完整数据流:\n\n1. 资产导入:\n   glTF/FBX --> Skeleton (joints[] + bindposes[])\n   glTF/FBX --> AnimationClip (tracks[], duration, wrapMode)\n   Spine JSON --> SkeletonData (bones, slots, skins, animations)\n\n2. 组件绑定:\n   SkeletalAnimation.onLoad() --> 遍历子节点查找 SkinnedMeshRenderer\n   SkinnedMeshRenderer._tryBindAnimation() --> 查找 skinningRoot 上的 SkeletalAnimation\n   model.bindSkeleton(skeleton, skinningRoot, mesh)\n\n3. 动画播放:\n   play(clipName) --> _createState(clip) --> SkeletalAnimationState\n   doPlayOrCrossFade(state, duration) --> Crossfade 或直接替换\n   state.initialize(root) --> clip.createEvaluator({target, pose, mask})\n\n4. 每帧更新:\n   AnimationState.update(dt) --> time += dt * speed\n   _sampleCurves(time) --> clipEval.evaluate(time) --> TrackEvalStatus.evaluate()\n   binding.setValue(value) --> Node.position/rotation/scale 或 PoseOutput\n\n5. 渲染:\n   [烘焙模式] GPU 采样骨骼动画纹理 --> 顶点着色器蒙皮\n   [实时模式] CPU 计算骨骼矩阵 --> Uniform 传入 GPU --> 顶点着色器蒙皮\n   [Spine] spine-core 计算 --> Batcher2D 提交顶点 --> 渲染"},
+        {"type": "note", "text": "无论选择哪个引擎，骨骼动画的核心原理都是一样的：骨骼层级树 + FK/IK + 蒙皮权重 + 关键帧插值。理解了这些基础，切换引擎只需要学习新的 API 和工具链。"}
+      ]
+    }
+  ],
+  "files": {}
+}

@@ -1,0 +1,139 @@
+{
+  "title": "W1D2: WGSL 着色器语言",
+  "chapters": [
+    {
+      "id": "D1-2-1",
+      "title": "WGSL vs GLSL — 语法对比",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "为什么要学 WGSL？"},
+        {"type": "paragraph", "text": "WebGPU 使用 WGSL（WebGPU Shading Language）作为原生着色器语言，取代了 WebGL 时代的 GLSL。WGSL 由 Google 主导设计，语法受 Rust 启发，强调类型安全和显式性。对于从 WebGL 迁移过来的开发者，理解两者的差异至关重要。"},
+        {"type": "paragraph", "text": "Cocos 引擎目前采用了一种巧妙的过渡策略：着色器源码仍然用 GLSL 450 编写，然后通过 glslang 编译为 SPIR-V，再用 twgsl 转换为 WGSL。这使得引擎可以复用大量已有的 GLSL 着色器代码。"},
+        {"type": "heading", "level": 3, "text": "类型系统对比"},
+        {"type": "table", "headers": ["特性", "GLSL 450", "WGSL"],
+         "rows": [
+           ["向量类型", "vec4, vec3, vec2", "vec4<f32>, vec3<f32>, vec2<f32>"],
+           ["矩阵类型", "mat4, mat3", "mat4x4<f32>, mat3x3<f32>"],
+           ["整数类型", "int, uint", "i32, u32"],
+           ["布尔类型", "bool", "bool"],
+           ["纹理类型", "sampler2D", "texture_2d<f32> + sampler"],
+           ["数组类型", "float arr[4]", "array<f32, 4>"],
+           ["结构体", "struct MyStruct {}", "struct MyStruct {}"]
+         ]},
+        {"type": "heading", "level": 3, "text": "函数语法对比"},
+        {"type": "code-block", "language": "glsl", "code": "// GLSL 450 函数定义\nvec4 transformVertex(vec3 pos, mat4 mvp) {\n    return mvp * vec4(pos, 1.0);\n}\n\nvoid main() {\n    gl_Position = transformVertex(a_position, u_MVP);\n}"},
+        {"type": "code-block", "language": "wgsl", "code": "// WGSL 函数定义\nfn transformVertex(pos: vec3<f32>, mvp: mat4x4<f32>) -> vec4<f32> {\n    return mvp * vec4<f32>(pos, 1.0);\n}\n\n@vertex\nfn main(@location(0) a_position: vec3<f32>) -> @builtin(position) vec4<f32> {\n    return transformVertex(a_position, u_MVP);\n}"},
+        {"type": "heading", "level": 3, "text": "入口点与属性标注"},
+        {"type": "paragraph", "text": "GLSL 使用固定的入口函数名 main() 和内置变量（如 gl_Position），而 WGSL 使用属性标注（attribute annotations）来声明入口点类型和参数绑定："},
+        {"type": "list", "items": [
+          "@vertex — 标记顶点着色器入口",
+          "@fragment — 标记片段着色器入口",
+          "@compute — 标记计算着色器入口",
+          "@location(n) — 声明顶点属性或片段输出的绑定点",
+          "@binding(n) @group(n) — 声明资源绑定位置",
+          "@builtin(position) — 声明使用内置变量"
+        ]},
+        {"type": "note", "text": "WGSL 中所有类型参数化都使用尖括号语法 vec4<f32>，而非 GLSL 的函数式语法 vec4()。这是两者最显著的语法差异之一。"}
+      ]
+    },
+    {
+      "id": "D1-2-2",
+      "title": "WGSL 变量系统",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "四种声明方式"},
+        {"type": "paragraph", "text": "WGSL 提供了四种变量声明关键字，各有不同的语义和用途。理解它们的区别对于编写正确的着色器至关重要。"},
+        {"type": "table", "headers": ["关键字", "可变性", "作用域", "典型用途"],
+         "rows": [
+           ["const", "不可变", "编译期常量", "数学常量如 PI = 3.14159"],
+           ["override", "不可变（可覆盖）", "管线创建时", "运行时可配置的常量，如分辨率"],
+           ["let", "不可变", "函数/块作用域", "函数内的临时计算结果"],
+           ["var", "可变", "取决于地址空间", "uniform buffer、storage buffer、局部变量"]
+         ]},
+        {"type": "heading", "level": 3, "text": "const — 编译期常量"},
+        {"type": "paragraph", "text": "const 声明的值在编译期就已确定，不占用任何运行时资源。编译器会将其内联到使用处。"},
+        {"type": "code-block", "language": "wgsl", "code": "const PI: f32 = 3.14159265358979;\nconst MAX_LIGHTS: i32 = 8;\nconst UP: vec3<f32> = vec3<f32>(0.0, 1.0, 0.0);"},
+        {"type": "heading", "level": 3, "text": "override — 可覆盖常量"},
+        {"type": "paragraph", "text": "override 声明的值在管线创建时确定。它允许在 JavaScript 端通过 GPUConstantOverride 在不重新编译着色器的情况下修改常量值。"},
+        {"type": "code-block", "language": "wgsl", "code": "override resolution: f32 = 1.0;   // 默认值\noverride useTexture: bool = true;   // 默认启用纹理\n\n@fragment\nfn main() -> @location(0) vec4<f32> {\n    if (useTexture) {\n        return textureSample(myTexture, mySampler, uv) * resolution;\n    }\n    return vec4<f32>(1.0, 0.0, 0.0, 1.0);\n}"},
+        {"type": "heading", "level": 3, "text": "let — 局部不可变"},
+        {"type": "paragraph", "text": "let 声明的值在运行时计算，但在其作用域内不可修改。通常用于函数内将复杂表达式拆分为可读的中间变量。"},
+        {"type": "code-block", "language": "wgsl", "code": "@fragment\nfn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {\n    let texCoord = uv * 2.0 - 1.0;        // 运行时计算，不可修改\n    let color = textureSample(tex, s, texCoord);\n    let luminance = dot(color.rgb, vec3<f32>(0.299, 0.587, 0.114));\n    return vec4<f32>(luminance, luminance, luminance, color.a);\n}"},
+        {"type": "heading", "level": 3, "text": "var — 可变变量"},
+        {"type": "paragraph", "text": "var 是唯一可以被修改的声明。它可以带有地址空间修饰符，决定其存储位置和访问方式："},
+        {"type": "table", "headers": ["地址空间", "说明", "典型声明"],
+         "rows": [
+           ["private", "模块级私有变量", "var<private> counter: i32 = 0;"],
+           ["workgroup", "计算着色器工作组共享", "var<workgroup> sharedData: array<f32, 256>;"],
+           ["uniform", "Uniform Buffer", "@group(0) @binding(0) var<uniform> camera: CameraData;"],
+           ["storage", "Storage Buffer（可读写）", "@group(0) @binding(1) var<storage, read_write> particles: array<Particle>;"]
+         ]},
+        {"type": "note", "text": "在 Cocos 引擎中，由于着色器先用 GLSL 编写再转换为 WGSL，开发者通常不需要直接写 WGSL 代码。但理解变量系统有助于调试 WebGPU 后端的着色器问题。"}
+      ]
+    },
+    {
+      "id": "D1-2-3",
+      "title": "着色器结构 — @vertex 与 @fragment",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "WGSL 着色器程序结构"},
+        {"type": "paragraph", "text": "一个完整的 WGSL 着色器程序由全局声明和入口函数组成。全局声明包括结构体、变量绑定、常量和辅助函数。入口函数通过 @vertex 或 @compute 属性标注来标识。"},
+        {"type": "heading", "level": 3, "text": "完整顶点着色器示例"},
+        {"type": "code-block", "language": "wgsl", "code": "// 1. 结构体声明\nstruct Uniforms {\n    mvp: mat4x4<f32>,\n    color: vec4<f32>,\n};\n\nstruct VertexInput {\n    @location(0) position: vec3<f32>,\n    @location(1) uv: vec2<f32>,\n};\n\nstruct VertexOutput {\n    @builtin(position) position: vec4<f32>,\n    @location(0) uv: vec2<f32>,\n    @location(1) color: vec4<f32>,\n};\n\n// 2. 绑定资源\n@group(0) @binding(0) var<uniform> uniforms: Uniforms;\n@group(0) @binding(1) var myTexture: texture_2d<f32>;\n@group(0) @binding(2) var mySampler: sampler;\n\n// 3. 顶点入口\n@vertex\nfn vs_main(input: VertexInput) -> VertexOutput {\n    var output: VertexOutput;\n    output.position = uniforms.mvp * vec4<f32>(input.position, 1.0);\n    output.uv = input.uv;\n    output.color = uniforms.color;\n    return output;\n}\n\n// 4. 片段入口\n@fragment\nfn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {\n    let texColor = textureSample(myTexture, mySampler, input.uv);\n    return texColor * input.color;\n}"},
+        {"type": "heading", "level": 3, "text": "着色器阶段与数据流"},
+        {"type": "list", "items": [
+          "顶点着色器（@vertex）：每个顶点执行一次，输入来自顶点缓冲区，输出插值后传递给片段着色器",
+          "片段着色器（@fragment）：每个像素执行一次，输入是光栅化插值后的顶点输出，输出写入渲染目标",
+          "计算着色器（@compute）：独立于渲染管线，通过 @workgroup_size 定义工作组大小"
+        ]},
+        {"type": "heading", "level": 3, "text": "内置变量"},
+        {"type": "table", "headers": ["内置变量", "阶段", "说明"],
+         "rows": [
+           ["@builtin(position)", "vertex out", "裁剪空间坐标，必须输出"],
+           ["@builtin(vertex_index)", "vertex in", "当前顶点索引"],
+           ["@builtin(instance_index)", "vertex in", "当前实例索引"],
+           ["@builtin(front_facing)", "fragment in", "是否正面朝向"],
+           ["@builtin(sample_index)", "fragment in", "MSAA 采样索引"],
+           ["@builtin(local_invocation_id)", "compute in", "工作组内线程 ID"],
+           ["@builtin(global_invocation_id)", "compute in", "全局线程 ID"]
+         ]},
+        {"type": "note", "text": "WGSL 中 @builtin 变量和 @location 变量可以混用，但每个参数只能使用一种装饰方式。@builtin 用于管线固定功能，@location 用于用户自定义数据传递。"}
+      ]
+    },
+    {
+      "id": "D1-2-4",
+      "title": "Cocos WebGPU 着色器实现",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Cocos 引擎的着色器抽象"},
+        {"type": "paragraph", "text": "Cocos 引擎通过 GFX（Graphics Foundation）层抽象了着色器接口。基类 Shader 定义了所有后端共用的属性，WebGPU 后端在此基础上实现了 GPU 着色器模块的创建和管理。"},
+        {"type": "heading", "level": 3, "text": "Shader 基类 — 统一接口"},
+        {"type": "paragraph", "text": "Shader 基类定义了着色器的核心数据结构：name、stages（着色阶段）、attributes（顶点属性）、blocks（Uniform 块）和 samplers（采样器）。"},
+        {"type": "code-reference", "file": "cocos/gfx/base/shader.ts", "startLine": 31, "endLine": 70, "caption": "Shader 基类：定义着色器的抽象接口，包含 name、stages、attributes、blocks、samplers 等属性", "highlights": [31, 37, 43, 46, 49, 53, 55, 57, 59, 61, 67]},
+        {"type": "paragraph", "text": "基类的核心设计点：stages 数组存储顶点/片段着色器源码；attributes 描述顶点输入布局；blocks 描述 Uniform Buffer 绑定信息；samplers 描述纹理采样器绑定。这些信息在初始化时传入，由具体后端负责编译和创建 GPU 资源。"},
+        {"type": "heading", "level": 3, "text": "WebGPUShader — GPU 模块创建"},
+        {"type": "paragraph", "text": "WebGPUShader 继承自基类，负责创建 WebGPU 原生的 ShaderModule。初始化时，它会遍历所有着色阶段，为每个阶段创建 IWebGPUGPUShaderStage 对象。"},
+        {"type": "code-reference", "file": "cocos/gfx/webgpu/webgpu-shader.ts", "startLine": 31, "endLine": 81, "caption": "WebGPUShader：WebGPU 后端的着色器实现，负责创建 GPU 着色器模块", "highlights": [38, 44, 45, 50, 59, 60, 61, 62, 63, 64, 65, 66, 67, 70]},
+        {"type": "paragraph", "text": "关键实现细节：初始化时复制 blocks 和 samplers 数组以避免外部修改影响内部状态；gpuStages 数组为每个着色阶段预分配 IWebGPUGPUShaderStage；最终调用 WebGPUCmdFuncCreateGPUShader 创建原生 GPU 着色器模块。"},
+        {"type": "heading", "level": 3, "text": "GPU 着色器阶段数据结构"},
+        {"type": "table", "headers": ["字段", "类型", "说明"],
+         "rows": [
+           ["type", "ShaderStageFlagBit", "着色阶段类型（VERTEX/FRAGMENT）"],
+           ["source", "string", "WGSL 源码文本"],
+           ["gpuShader", "GPUShaderModule | null", "原生 WebGPU 着色器模块"],
+           ["bindings", "IWebGPUBinding[]", "资源绑定信息数组"],
+           ["attrs", "Map<string, number>", "顶点属性名到 location 的映射"]
+         ]},
+        {"type": "heading", "level": 3, "text": "着色器生命周期"},
+        {"type": "list", "items": [
+          "1. ShaderInfo 传入：包含着色器名称、阶段源码、属性、Uniform 块和采样器定义",
+          "2. GPU 资源分配：为每个阶段创建 IWebGPUGPUShaderStage，初始化 bindings 和 attrs",
+          "3. 编译与模块创建：WebGPUCmdFuncCreateGPUShader 调用 device.createShaderModule() 创建原生模块",
+          "4. 管线创建时使用：PipelineState 将 shader 模块绑定到 GPURenderPipelineDescriptor",
+          "5. 销毁：WebGPUCmdFuncDestroyShader 释放 GPU 资源"
+        ]},
+        {"type": "note", "text": "Cocos 的 WebGPU 着色器并不是直接用 WGSL 编写的。引擎先用 GLSL 450 编写着色器，然后通过 glslang 编译为 SPIR-V，再用 twgsl 转换为 WGSL。这个编译链在 WebGPUCmdFuncCreateGPUShader 内部完成。"}
+      ]
+    }
+  ],
+  "files": {
+    "cocos/gfx/base/shader.ts": "/*\n Copyright (c) 2020-2023 Xiamen Yaji Software Co., Ltd.\n\n https://www.cocos.com/\n\n Permission is hereby granted, free of charge, to any person obtaining a copy\n of this software and associated documentation files (the \"Software\"), to deal\n in the Software without restriction, including without limitation the rights to\n use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies\n of the Software, and to permit persons to whom the Software is furnished to do so,\n subject to the following conditions:\n\n The above copyright notice and this permission notice shall be included in\n all copies or substantial portions of the Software.\n\n THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n THE SOFTWARE.\n*/\n\nimport { GFXObject, ObjectType, ShaderInfo, ShaderStage, UniformBlock, UniformSampler, Attribute } from './define';\n\n/**\n * @en GFX shader.\n * @zh GFX 着色器。\n */\nexport abstract class Shader extends GFXObject {\n    get name (): string {\n        return this._name;\n    }\n\n    get attributes (): Attribute[] {\n        return this._attributes;\n    }\n\n    get blocks (): UniformBlock[] {\n        return this._blocks;\n    }\n\n    get samplers (): UniformSampler[] {\n        return this._samplers;\n    }\n\n    get stages (): ShaderStage[] {\n        return this._stages;\n    }\n\n    /** @mangle */\n    protected _name = '';\n    /** @mangle */\n    protected _stages: ShaderStage[] = [];\n    /** @mangle */\n    protected _attributes: Attribute[] = [];\n    /** @mangle */\n    protected _blocks: UniformBlock[] = [];\n    /** @mangle */\n    protected _samplers: UniformSampler[] = [];\n\n    constructor () {\n        super(ObjectType.SHADER);\n    }\n\n    public abstract initialize (info: Readonly<ShaderInfo>): void;\n\n    public abstract destroy (): void;\n}",
+    "cocos/gfx/webgpu/webgpu-shader.ts": "/*\n Copyright (c) 2024 Xiamen Yaji Software Co., Ltd.\n\n https://www.cocos.com/\n\n Permission is hereby granted, free of charge, to any person obtaining a copy\n of this software and associated documentation files (the \"Software\"), to deal\n in the Software without restriction, including without limitation the rights to\n use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies\n of the Software, and to permit persons to whom the Software is furnished to do so,\n subject to the following conditions:\n\n The above copyright notice and this permission notice shall be included in\n all copies or substantial portions of the Software.\n\n THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n THE SOFTWARE.\n*/\n\nimport { Shader } from '../base/shader';\nimport { WebGPUCmdFuncCreateGPUShader, WebGPUCmdFuncDestroyShader } from './webgpu-commands';\nimport { IWebGPUGPUShader, IWebGPUGPUShaderStage } from './webgpu-gpu-objects';\nimport { ShaderInfo } from '../base/define';\nimport { WebGPUDeviceManager } from './define';\n\nexport class WebGPUShader extends Shader {\n    get gpuShader (): IWebGPUGPUShader {\n        return this._gpuShader!;\n    }\n\n    private _gpuShader: IWebGPUGPUShader | null = null;\n\n    public initialize (info: Readonly<ShaderInfo>): void {\n        this._name = info.name;\n        this._stages = info.stages;\n        this._attributes = info.attributes;\n        this._blocks = info.blocks;\n        this._samplers = info.samplers;\n        const stageSize = info.stages.length;\n        this._gpuShader = {\n            name: info.name,\n            blocks: info.blocks.slice(),\n            samplers: info.samplers,\n\n            gpuStages: new Array<IWebGPUGPUShaderStage>(stageSize),\n            gpuProgram: null,\n            gpuInputs: [],\n            gpuUniforms: [],\n            gpuBlocks: [],\n            gpuSamplers: [],\n            bindings: new Map<number, number[]>(),\n        };\n\n        for (let i = 0; i < stageSize; ++i) {\n            const stage = info.stages[i];\n            this._gpuShader.gpuStages[i] = {\n                type: stage.stage,\n                source: stage.source,\n                gpuShader: null,\n                bindings: [],\n                attrs: new Map(),\n            };\n        }\n        const device = WebGPUDeviceManager.instance;\n        WebGPUCmdFuncCreateGPUShader(device, this._gpuShader);\n    }\n\n    public destroy (): void {\n        if (!this._gpuShader) {\n            return;\n        }\n        const device = WebGPUDeviceManager.instance;\n        WebGPUCmdFuncDestroyShader(device, this._gpuShader);\n        this._gpuShader = null;\n    }\n}"
+  }
+}

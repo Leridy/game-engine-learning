@@ -1,0 +1,119 @@
+{
+  "title": "W3D5: 网格变形与 IK",
+  "chapters": [
+    {
+      "id": "D3-5-1",
+      "title": "2D 三角网格变形",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "从精灵到网格"},
+        {"type": "paragraph", "text": "传统的 2D 精灵动画使用帧切换——每帧是一张完整的图片。网格变形（Mesh Deformation）将精灵图片切割为三角网格，然后通过移动顶点实现变形效果。这比帧动画节省大量内存，且可以产生无限种变形效果。"},
+        {"type": "paragraph", "text": "网格变形的核心流程："},
+        {"type": "list", "items": [
+          "1. 将精灵图片切割为三角网格（通常由美术工具完成）",
+          "2. 每个顶点记录 UV 坐标（对应图片位置）和初始位置",
+          "3. 动画驱动顶点位置变化",
+          "4. 渲染时使用变形后的顶点位置 + 原始 UV 坐标绘制"
+        ]},
+        {"type": "heading", "level": 3, "text": "三角剖分"},
+        {"type": "code-block", "language": "typescript", "code": "// 2D 网格三角剖分示例\n// 将一个矩形精灵分割为 2x2 的三角网格\ninterface Vertex {\n  x: number;  // 顶点位置\n  y: number;\n  u: number;  // UV 坐标\n  v: number;\n  boneIndices: number[];  // 骨骼索引\n  boneWeights: number[];  // 骨骼权重\n}\n\n// 4 个顶点，2 个三角形\nconst vertices: Vertex[] = [\n  { x: 0, y: 0, u: 0, v: 0, boneIndices: [0], boneWeights: [1] },\n  { x: 1, y: 0, u: 1, v: 0, boneIndices: [0, 1], boneWeights: [0.5, 0.5] },\n  { x: 1, y: 1, u: 1, v: 1, boneIndices: [1], boneWeights: [1] },\n  { x: 0, y: 1, u: 0, v: 1, boneIndices: [0, 1], boneWeights: [0.5, 0.5] },\n];\nconst indices = [0, 1, 2, 0, 2, 3]; // 两个三角形"},
+        {"type": "heading", "level": 3, "text": "FFD（Free-Form Deformation）"},
+        {"type": "paragraph", "text": "Spine 的 Mesh Deform 使用 FFD 技术。在编辑器中定义网格后，动画可以逐顶点编辑网格形状。FFD 数据存储在动画的 deform 字段中，每个 deform entry 记录了哪些顶点在哪些时间偏移了多少。"},
+        {"type": "note", "text": "网格变形是 Spine 和 DragonBones 区别于简单帧动画的核心能力。常见的应用包括：面部表情、布料飘动、肌肉膨胀、尾巴摆动等。"}
+      ]
+    },
+    {
+      "id": "D3-5-2",
+      "title": "Spine Mesh Attachment",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Spine 的 Attachment 系统"},
+        {"type": "paragraph", "text": "Spine 中的 Attachment 是附着在 Slot 上的可见内容。主要类型包括："},
+        {"type": "table", "headers": ["类型", "说明", "用途"], "rows": [
+          ["RegionAttachment", "矩形图片区域", "简单的精灵显示"],
+          ["MeshAttachment", "三角网格", "需要变形的复杂形状"],
+          ["BoundingBoxAttachment", "碰撞盒", "物理碰撞区域"],
+          ["PathAttachment", "路径曲线", "骨骼沿路径运动"],
+          ["PointAttachment", "点标记", "特效发射点"]
+        ]},
+        {"type": "paragraph", "text": "MeshAttachment 是网格变形的基础。它将一张纹理切割为多个三角形，每个顶点绑定到骨骼并有权重。动画播放时，deform 数据修改顶点位置，产生变形效果。"},
+        {"type": "heading", "level": 3, "text": "Slot 与 Attachment 的关系"},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 904, "endLine": 928, "caption": "getAttachment/setAttachment：通过 Slot 和 Attachment 名称获取或设置 Attachment", "highlights": [904, 906, 922, 924]},
+        {"type": "paragraph", "text": "每个 Slot 可以在不同时间显示不同的 Attachment。例如，一个\"武器\"Slot 可以在\"idle\"动画中显示剑，在\"attack\"动画中显示斧头。"},
+        {"type": "heading", "level": 3, "text": "Spine 的渲染数据"},
+        {"type": "paragraph", "text": "Spine 的渲染系统将骨骼变换后的 Attachment 数据转换为顶点缓冲区。缓存模式下，每帧的渲染模型被预计算并存储："},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 1165, "endLine": 1174, "caption": "updateRenderData：实时模式调用实例更新，缓存模式直接使用预计算帧", "highlights": [1165, 1166, 1167, 1168, 1169, 1171, 1172]},
+        {"type": "paragraph", "text": "缓存模式（SHARED_CACHE/PRIVATE_CACHE）将动画预计算为帧序列。每帧包含完整的骨骼信息和渲染模型。_updateCache 方法管理帧的推进："},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 1112, "endLine": 1153, "caption": "_updateCache：缓存模式的帧推进逻辑——累加时间、更新帧索引、同步挂点", "highlights": [1112, 1118, 1119, 1129, 1130, 1131, 1134, 1135, 1137, 1139, 1140, 1144]},
+        {"type": "note", "text": "Spine 的 Mesh Attachment 支持动态添加和删除顶点（hull vertices），这使得动画可以创造全新的形状，而不仅仅是移动现有顶点。"}
+      ]
+    },
+    {
+      "id": "D3-5-3",
+      "title": "Sprite 换装系统",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "换装的需求"},
+        {"type": "paragraph", "text": "换装系统允许玩家自定义角色外观——更换武器、盔甲、发型等。在骨骼动画系统中，换装通常通过替换 Attachment/Skin 实现。"},
+        {"type": "heading", "level": 3, "text": "Spine 的换装方案"},
+        {"type": "paragraph", "text": "Spine 提供三种换装方式："},
+        {"type": "list", "items": [
+          "Skin 切换：整套皮肤切换（如不同服装套装），使用 setSkin()",
+          "Slot 纹理替换：局部换装，使用 setSlotTexture() 替换单个 Slot 的纹理",
+          "Attachment 替换：最细粒度的换装，使用 setAttachment() 替换单个 Attachment"
+        ]},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 1910, "endLine": 1942, "caption": "setSlotTexture：局部换装——为指定 Slot 替换纹理，支持创建新 Attachment", "highlights": [1910, 1920, 1921, 1925, 1926, 1930, 1933, 1934, 1938]},
+        {"type": "paragraph", "text": "setSlotTexture 的流程：1) 验证非缓存模式；2) 查找目标 Slot；3) resizeSlotRegion 调整纹理区域大小；4) setSlotTexture 替换纹理 UUID。createNew 参数控制是否创建新 Attachment 以避免影响其他共享同一 Attachment 的组件。"},
+        {"type": "heading", "level": 3, "text": "骨骼挂点与换装"},
+        {"type": "paragraph", "text": "Cocos 的 SpineSocket 系统允许在骨骼上挂载自定义节点，用于在骨骼动画驱动的位置显示自定义内容（如武器、特效）："},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 161, "endLine": 184, "caption": "SpineSocket：定义骨骼路径和目标节点的映射", "highlights": [161, 162, 169, 176, 178, 180]},
+        {"type": "paragraph", "text": "挂点系统通过 _indexBoneSockets 构建骨骼路径到索引的映射，然后 _updateSocketBindings 将 SpineSocket 的路径解析为骨骼索引。每帧动画更新后，attachUtil 同步挂点节点的变换。"},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 1585, "endLine": 1599, "caption": "_updateSocketBindings：将 SpineSocket 路径解析为骨骼索引并建立映射", "highlights": [1585, 1587, 1589, 1590, 1591, 1596]},
+        {"type": "heading", "level": 3, "text": "查询可挂载的骨骼"},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 1623, "endLine": 1635, "caption": "querySockets：查询所有可添加挂点的骨骼路径", "highlights": [1623, 1624, 1628, 1629, 1632]},
+        {"type": "note", "text": "换装系统的性能关键：避免频繁创建和销毁 Attachment/纹理。使用对象池和预加载可以显著减少换装时的卡顿。"}
+      ]
+    },
+    {
+      "id": "D3-5-4",
+      "title": "逆运动学（IK）",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "IK 的概念"},
+        {"type": "paragraph", "text": "逆运动学（Inverse Kinematics，IK）是 FK 的逆运算。FK 给定骨骼旋转求末端位置，IK 则是给定末端目标位置反推骨骼旋转。典型应用：角色脚部贴合地面、手部抓取物体、目光追踪。"},
+        {"type": "heading", "level": 3, "text": "CCD 算法"},
+        {"type": "paragraph", "text": "CCD（Cyclic Coordinate Descent）是最简单的 IK 算法之一。它从末端骨骼开始，逐级向上调整每根骨骼的旋转，使末端趋近目标。"},
+        {"type": "code-block", "language": "typescript", "code": "// CCD IK 算法\nfunction solveCCD(\n  bones: Bone[],     // 骨骼链\n  target: Vec2,      // 目标位置\n  iterations: number // 迭代次数\n) {\n  const endEffector = bones[bones.length - 1];\n  \n  for (let iter = 0; iter < iterations; iter++) {\n    // 从末端向根部遍历\n    for (let i = bones.length - 2; i >= 0; i--) {\n      const bone = bones[i];\n      const endPos = getEndEffectorPos(bones);\n      \n      // 计算从骨骼到末端和从骨骼到目标的向量\n      const toEnd = Vec2.sub(endPos, bone.worldPos);\n      const toTarget = Vec2.sub(target, bone.worldPos);\n      \n      // 计算需要旋转的角度\n      const angle = Vec2.signedAngle(toEnd, toTarget);\n      \n      // 应用旋转（限制范围）\n      bone.rotation += clamp(angle, -maxDelta, maxDelta);\n      updateWorldTransforms(bones);\n      \n      // 如果末端足够接近目标，提前退出\n      if (Vec2.distance(endPos, target) < threshold) return;\n    }\n  }\n}"},
+        {"type": "heading", "level": 3, "text": "FABRIK 算法"},
+        {"type": "paragraph", "text": "FABRIK（Forward And Backward Reaching IK）是一种更现代的 IK 算法。它通过前向和后向两次遍历骨骼链来求解，收敛速度比 CCD 快，且产生的姿态更自然。"},
+        {"type": "code-block", "language": "typescript", "code": "// FABRIK IK 算法\nfunction solveFABRIK(\n  bones: Bone[],\n  target: Vec2,\n  iterations: number\n) {\n  const rootPos = bones[0].worldPos.clone();\n  const distances: number[] = [];\n  \n  // 计算每段骨骼长度\n  for (let i = 0; i < bones.length - 1; i++) {\n    distances[i] = Vec2.distance(bones[i].worldPos, bones[i+1].worldPos);\n  }\n  \n  for (let iter = 0; iter < iterations; iter++) {\n    // 前向阶段：从末端到根部\n    bones[bones.length-1].worldPos = target.clone();\n    for (let i = bones.length - 2; i >= 0; i--) {\n      const dir = Vec2.normalize(\n        Vec2.sub(bones[i].worldPos, bones[i+1].worldPos)\n      );\n      bones[i].worldPos = Vec2.add(\n        bones[i+1].worldPos,\n        Vec2.scale(dir, distances[i])\n      );\n    }\n    \n    // 后向阶段：从根部到末端\n    bones[0].worldPos = rootPos.clone();\n    for (let i = 0; i < bones.length - 1; i++) {\n      const dir = Vec2.normalize(\n        Vec2.sub(bones[i+1].worldPos, bones[i].worldPos)\n      );\n      bones[i+1].worldPos = Vec2.add(\n        bones[i].worldPos,\n        Vec2.scale(dir, distances[i])\n      );\n    }\n    \n    if (Vec2.distance(bones[bones.length-1].worldPos, target) < threshold) break;\n  }\n  \n  // 从世界位置反算旋转\n  for (let i = 0; i < bones.length - 1; i++) {\n    bones[i].rotation = Math.atan2(\n      bones[i+1].worldPos.y - bones[i].worldPos.y,\n      bones[i+1].worldPos.x - bones[i].worldPos.x\n    );\n  }\n}"},
+        {"type": "heading", "level": 3, "text": "Spine 的 IK 约束"},
+        {"type": "paragraph", "text": "Spine 运行时内置了 IK 约束支持。在 Spine 编辑器中设置 IK 约束后，运行时会在每帧 updateWorldTransform 中自动求解。Spine 的 IK 使用解析法（Analytical IK），对两段骨骼链有精确解。"},
+        {"type": "note", "text": "IK 的迭代次数和精度之间需要权衡。对于实时应用，通常 3-10 次迭代就足够。CCD 简单但可能产生不自然的弯曲；FABRIK 更平滑但需要额外的旋转反算步骤。"}
+      ]
+    },
+    {
+      "id": "D3-5-5",
+      "title": "2D 两点 IK 解析解",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "两段骨骼 IK 的几何解"},
+        {"type": "paragraph", "text": "当 IK 链只有两段骨骼（如上臂+前臂）时，可以使用余弦定理直接求解，无需迭代。这是最高效的 IK 解法，也是 Spine 内置 IK 的实现方式。"},
+        {"type": "code-block", "language": "typescript", "code": "// 两段骨骼 IK 解析解\n// 骨骼 A (上臂) 长度 L1, 骨骼 B (前臂) 长度 L2\n// 目标位置 T, 肩部位置 S\nfunction solveTwoBoneIK(\n  shoulder: Vec2,   // 肩部位置\n  target: Vec2,     // 目标位置\n  L1: number,       // 上臂长度\n  L2: number,       // 前臂长度\n  bendDir: number   // 弯曲方向 (1 或 -1)\n): { elbowAngle: number; shoulderAngle: number } {\n  // 目标到肩部的距离\n  const dx = target.x - shoulder.x;\n  const dy = target.y - shoulder.y;\n  const dist = Math.sqrt(dx*dx + dy*dy);\n  \n  // 限制目标在可达范围内\n  const clampedDist = Math.min(dist, L1 + L2 - 0.001);\n  const clampedDist2 = Math.max(clampedDist, Math.abs(L1 - L2) + 0.001);\n  \n  // 使用余弦定理求肘部角度\n  // cos(elbow) = (L1^2 + L2^2 - dist^2) / (2*L1*L2)\n  const cosElbow = (L1*L1 + L2*L2 - clampedDist2*clampedDist2) / (2*L1*L2);\n  const elbowAngle = Math.acos(clamp(cosElbow, -1, 1)) * bendDir;\n  \n  // 求肩部角度\n  const cosAlpha = (L1*L1 + clampedDist2*clampedDist2 - L2*L2) / (2*L1*clampedDist2);\n  const alpha = Math.acos(clamp(cosAlpha, -1, 1));\n  const beta = Math.atan2(dy, dx);\n  const shoulderAngle = beta - alpha * bendDir;\n  \n  return { elbowAngle, shoulderAngle };\n}"},
+        {"type": "heading", "level": 3, "text": "弯曲方向"},
+        {"type": "paragraph", "text": "两段骨骼 IK 有两个解（肘部向上或向下）。bendDir 参数控制选择哪个解。在实际应用中，通常根据角色的朝向或美术需求来确定弯曲方向。"},
+        {"type": "heading", "level": 3, "text": "IK 的应用场景"},
+        {"type": "table", "headers": ["场景", "IK 链长度", "算法选择", "说明"], "rows": [
+          ["脚部贴地", "2 段（大腿+小腿）", "解析法", "角色在不平地形上保持脚部稳定"],
+          ["手部抓取", "2-3 段（上臂+前臂+手）", "FABRIK", "角色抓取物体或攀爬"],
+          ["目光追踪", "2 段（头+眼）", "解析法", "角色注视移动目标"],
+          ["触手/尾巴", "4+ 段", "CCD/FABRIK", "有机体的自然运动"],
+          ["脊柱弯曲", "3-4 段", "FABRIK", "角色弯腰或扭转"]
+        ]},
+        {"type": "heading", "level": 3, "text": "IK 与动画的结合"},
+        {"type": "paragraph", "text": "IK 通常作为动画的后处理步骤。动画系统先播放 FK 动画产生基础姿态，然后 IK 约束在此基础上修正末端位置。这种混合方式保证了动画的艺术性同时增加了环境适应性。"},
+        {"type": "note", "text": "在 2D 游戏中，两点 IK 解析解是最常用的 IK 实现。它的计算成本极低（几个三角函数），可以在每帧对多个角色同时求解，非常适合平台跳跃游戏的脚部贴地效果。"}
+      ]
+    }
+  ],
+  "files": {
+    "cocos/spine/skeleton.ts": "Spine 骨骼动画组件（Mesh/Skin/Socket/缓存）",
+    "cocos/animation/animation-clip.ts": "动画剪辑数据结构",
+    "cocos/3d/skinned-mesh-renderer/skinned-mesh-renderer.ts": "蒙皮网格渲染器"
+  }
+}

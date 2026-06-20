@@ -1,0 +1,118 @@
+{
+  "title": "W2D4: JS/WASM 通信",
+  "chapters": [
+    {
+      "id": "D2-4-1",
+      "title": "线性内存 — WASM 的数据空间",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "WASM 线性内存模型"},
+        {"type": "paragraph", "text": "WebAssembly 使用一块连续的「线性内存」（Linear Memory）来存储所有数据。这块内存对 JS 和 WASM 都是可见的——JS 可以通过 ArrayBuffer 直接读写 WASM 的内存，这是实现高性能互操作的基础。"},
+        {"type": "paragraph", "text": "线性内存的特点："},
+        {"type": "list", "items": [
+          "初始大小可配置，默认 16 页（1MB）",
+          "按 64KB 的页（Page）为单位增长，最大 4GB",
+          "增长后原有视图会 detach，需要重建 TypedArray",
+          "WASM 和 JS 共享同一块物理内存，无拷贝开销",
+          "所有 Rust 的堆分配（Vec、HashMap 等）都在这块内存中"
+        ]},
+        {"type": "heading", "level": 3, "text": "内存视图与指针"},
+        {"type": "paragraph", "text": "JS 通过 TypedArray 视图访问 WASM 内存。关键在于获取 Rust 数据在 WASM 内存中的偏移量（指针）："},
+        {"type": "code-block", "language": "typescript", "code": "// 获取 WASM 内存引用\nconst memory: WebAssembly.Memory = wasmInstance.memory;\n\n// 获取 Rust Vec<u8> 在 WASM 内存中的指针\nconst ptr: number = pathfinder.dynamic_bitmap_ptr();\nconst byteSize: number = pathfinder.bitmap_byte_size();\n\n// 创建指向 WASM 内存的 TypedArray 视图\nconst view = new Uint8Array(memory.buffer, ptr, byteSize);\n\n// JS 写入 → Rust 读取，零拷贝！\nview[0] = 0xFF;"},
+        {"type": "heading", "level": 3, "text": "Miu2D 的内存管理"},
+        {"type": "paragraph", "text": "Miu2D 的 wasm-manager.ts 负责管理 WASM 模块的生命周期和内存引用："},
+        {"type": "code-reference", "file": "packages/engine/src/wasm/wasm-manager.ts", "startLine": 152, "endLine": 155, "caption": "全局状态：WASM 模块实例和内存引用", "highlights": [152, 153, 154]},
+        {"type": "paragraph", "text": "wasmMemory 保存了 WebAssembly.Memory 引用，所有需要零拷贝访问的模块都通过它来创建视图。"},
+        {"type": "note", "text": "WASM 线性内存增长时，所有已创建的 TypedArray 视图会自动 detach（buffer.byteLength === 0）。Miu2D 的 ensureViews() 函数专门处理这种情况，自动重建视图。"}
+      ]
+    },
+    {
+      "id": "D2-4-2",
+      "title": "零拷贝模式 — 共享内存通信",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "传统 FFI vs 零拷贝"},
+        {"type": "paragraph", "text": "JS 调用 WASM 函数时，默认的参数传递会进行数据拷贝：JS 数组 → WASM 线性内存 → Rust 处理 → 结果拷贝回 JS。对于频繁调用的热路径（如每帧同步障碍物），这种拷贝开销不可忽视。"},
+        {"type": "paragraph", "text": "零拷贝方案的核心思想：JS 直接写入 WASM 线性内存，Rust 直接读取同一块内存，无需任何数据拷贝。"},
+        {"type": "table", "headers": ["方式", "数据流", "拷贝次数", "适用场景"],
+         "rows": [
+           ["传统 FFI", "JS → 拷贝 → WASM → 拷贝 → JS", "2 次", "偶尔调用的小数据"],
+           ["零拷贝", "JS ↔ WASM 共享内存", "0 次", "频繁调用的大数据（位图）"]
+         ]},
+        {"type": "heading", "level": 3, "text": "Miu2D 的零拷贝实现"},
+        {"type": "paragraph", "text": "wasm-path-finder.ts 详细注释了零拷贝架构："},
+        {"type": "code-reference", "file": "packages/engine/src/wasm/wasm-path-finder.ts", "startLine": 1, "endLine": 19, "caption": "文件头注释：零拷贝共享内存方案架构", "highlights": [9, 10, 11, 12]},
+        {"type": "paragraph", "text": "三层数据流："},
+        {"type": "list", "items": [
+          "静态障碍物（isMapObstacle）：地图加载时写入 WASM 线性内存，之后不变",
+          "动态障碍物（hasObstacle）：每帧写入 WASM 线性内存，NPC/Obj/Magic/Player 位置",
+          "寻路调用：Rust 直接读取 WASM 内存中的 bitmap，零 FFI 开销"
+        ]},
+        {"type": "heading", "level": 3, "text": "指针获取与视图创建"},
+        {"type": "paragraph", "text": "Rust 侧通过返回原始指针来暴露内存地址："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 200, "endLine": 222, "caption": "Rust 侧暴露内存指针的方法", "highlights": [201, 202, 207, 208, 213, 214, 219, 220]},
+        {"type": "paragraph", "text": "JS 侧通过这些指针创建 TypedArray 视图："},
+        {"type": "code-reference", "file": "packages/engine/src/wasm/wasm-path-finder.ts", "startLine": 187, "endLine": 198, "caption": "refreshMemoryViews — 根据指针创建共享内存视图", "highlights": [191, 192, 193, 195, 196, 197]},
+        {"type": "note", "text": "as_ptr() 返回的是 Rust Vec 在 WASM 线性内存中的起始偏移量（不是绝对地址）。JS 的 new Uint8Array(buffer, offset, size) 中的 offset 就是这个值。"}
+      ]
+    },
+    {
+      "id": "D2-4-3",
+      "title": "Staging Buffer — 优化写入模式",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "为什么需要 Staging Buffer"},
+        {"type": "paragraph", "text": "理论上 JS 可以直接写入 WASM 共享内存视图，但在实践中，先在 JS 侧的临时缓冲区（staging buffer）构建数据，再一次性拷贝到 WASM 内存，性能更好。原因有二："},
+        {"type": "list", "items": [
+          "TypedArray 的 fill(0) 在 JS 堆上的普通 ArrayBuffer 上更快（引擎优化更好）",
+          "staging buffer 是固定大小，无 GC 压力；而频繁的逐 bit 写入可能触发 V8 的 deopt"
+        ]},
+        {"type": "heading", "level": 3, "text": "Miu2D 的 Staging Buffer 实现"},
+        {"type": "paragraph", "text": "wasm-path-finder.ts 中的 syncDynamicObstacles 演示了完整的 staging buffer 模式："},
+        {"type": "code-reference", "file": "packages/engine/src/wasm/wasm-path-finder.ts", "startLine": 96, "endLine": 97, "caption": "staging buffer 分配（固定大小，无 GC 压力）", "highlights": [97]},
+        {"type": "heading", "level": 3, "text": "同步流程"},
+        {"type": "code-reference", "file": "packages/engine/src/wasm/wasm-path-finder.ts", "startLine": 279, "endLine": 335, "caption": "syncDynamicObstacles — 每帧同步动态障碍物到 WASM 内存", "highlights": [285, 291, 293, 334]},
+        {"type": "paragraph", "text": "流程分为四步："},
+        {"type": "list", "items": [
+          "1. 清零 staging buffer（dynamicStagingBuffer.fill(0)）",
+          "2. 遍历 NPC/Obj/Magic/Player，逐 bit 设置对应位置",
+          "3. 一次性拷贝到 WASM 共享内存（dynamicBitmapView.set(stagingBuffer)）",
+          "4. Rust 侧的 find_path 直接读取更新后的 bitmap"
+        ]},
+        {"type": "heading", "level": 3, "text": "位图编码方式"},
+        {"type": "paragraph", "text": "动态障碍物使用位图（bitmap）编码，每个 bit 代表一个格子是否有障碍物。这种编码方式极其紧凑：一个 100x100 的地图只需要 1250 字节（100*100/8）。"},
+        {"type": "code-block", "language": "typescript", "code": "// 设置格子 (x, y) 为障碍物\nconst idx = y * mapWidth + x;\nstagingBuffer[idx >> 3] |= 1 << (idx & 7);\n// idx >> 3  = 字节索引（除以 8）\n// idx & 7   = bit 位移（模 8）\n\n// 清除格子 (x, y) 的障碍物\nstagingBuffer[idx >> 3] &= ~(1 << (idx & 7));"},
+        {"type": "note", "text": "bitmap 的字节对齐写入比逐元素写入快得多。Miu2D 的位图方案将 100x100 地图的障碍物数据从 40KB（逐格存储）压缩到 1.25KB，减少了 97% 的内存带宽。"}
+      ]
+    },
+    {
+      "id": "D2-4-4",
+      "title": "WASM 内存增长与视图重建",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "内存增长的 Detach 问题"},
+        {"type": "paragraph", "text": "当 WASM 的 Vec 扩容时，内存分配器可能请求新的 64KB 页，导致 WebAssembly.Memory.grow() 被触发。此时内存的底层 ArrayBuffer 会更换，所有已创建的 TypedArray 视图会 detach（buffer.byteLength === 0）。"},
+        {"type": "paragraph", "text": "Miu2D 通过 ensureViews() 函数检测并处理这种情况："},
+        {"type": "code-reference", "file": "packages/engine/src/wasm/wasm-path-finder.ts", "startLine": 200, "endLine": 214, "caption": "ensureViews — 检测内存增长后自动重建视图", "highlights": [203, 207, 208, 209, 210]},
+        {"type": "heading", "level": 3, "text": "初始化与销毁"},
+        {"type": "paragraph", "text": "initWasmPathfinder 函数展示了完整的初始化流程："},
+        {"type": "code-reference", "file": "packages/engine/src/wasm/wasm-path-finder.ts", "startLine": 110, "endLine": 157, "caption": "initWasmPathfinder — 地图加载时初始化 WASM 寻路器", "highlights": [112, 117, 120, 133, 140, 143, 146]},
+        {"type": "paragraph", "text": "初始化步骤："},
+        {"type": "list", "items": [
+          "1. 检查是否已有实例且尺寸不变（复用）",
+          "2. 销毁旧实例（disposeWasmPathfinder）",
+          "3. 确保 WASM 模块已加载（ensureWasmReady）",
+          "4. 创建 PathFinder 实例（new PathFinder(width, height)）",
+          "5. 获取位图字节大小（bitmap_byte_size()）",
+          "6. 创建共享内存视图（refreshMemoryViews）",
+          "7. 分配 staging buffer（new Uint8Array(bitmapByteSize)）"
+        ]},
+        {"type": "heading", "level": 3, "text": "WASM 模块初始化管理"},
+        {"type": "paragraph", "text": "wasm-manager.ts 负责全局唯一的 WASM 模块初始化："},
+        {"type": "code-reference", "file": "packages/engine/src/wasm/wasm-manager.ts", "startLine": 162, "endLine": 195, "caption": "initWasm — 全局初始化，带 Promise 缓存防止重复加载", "highlights": [163, 167, 171, 173, 174, 177]},
+        {"type": "paragraph", "text": "initPromise 变量确保即使多个地方同时调用 initWasm()，WASM 模块也只加载一次。isInitialized 标志用于后续的快速路径检查。"},
+        {"type": "note", "text": "Miu2D 的 wasm-manager.ts 同时注册了 zstd 解压器。这是 WASM 模块的一个附带功能——地图文件使用 Zstd 压缩，纯 Rust 实现的 ruzstd 避免了 C 依赖。"}
+      ]
+    }
+  ],
+  "files": {
+    "packages/engine/src/wasm/wasm-manager.ts": "/**\n * WASM 模块统一初始化管理\n *\n * 所有 WASM 功能共享同一个 @miu2d/engine-wasm 模块实例\n * 只需初始化一次，避免重复加载\n */\n\nimport { logger } from \"../core/logger\";\nimport { setZstdDecompressor } from \"../core/zstd\";\n\n// ... [类型定义省略]\n\nlet wasmModule: WasmModule | null = null;\nlet wasmMemory: WebAssembly.Memory | null = null;\nlet initPromise: Promise<boolean> | null = null;\nlet isInitialized = false;\n\nexport async function initWasm(): Promise<boolean> {\n  if (isInitialized) return true;\n  if (initPromise) return initPromise;\n\n  initPromise = (async () => {\n    try {\n      const wasm = await import(\"@miu2d/engine-wasm\");\n      const initOutput = await wasm.default();\n      wasmModule = wasm as unknown as WasmModule;\n      wasmMemory = (initOutput as { memory: WebAssembly.Memory }).memory;\n      isInitialized = true;\n      // ... 注册 zstd 解压器\n      return true;\n    } catch (error) {\n      logger.warn(\"[Wasm] Failed to initialize\", error);\n      return false;\n    }\n  })();\n  return initPromise;\n}",
+    "packages/engine/src/wasm/wasm-path-finder.ts": "/**\n * WASM PathFinder 桥接层 — 零拷贝共享内存方案\n *\n * 架构：\n * 1. 静态障碍物：地图加载时写入 WASM 线性内存\n * 2. 动态障碍物：每帧写入 WASM 线性内存\n * 3. 寻路调用：Rust 直接读取 WASM 内存中的 bitmap，零 FFI 开销\n *\n * 共享内存原理：\n *   JS 通过 PathFinder.xxx_bitmap_ptr() 获取 Rust Vec<u8> 在 WASM 线性内存中的偏移量，\n *   然后 new Uint8Array(wasmMemory.buffer, offset, byteSize) 创建视图。\n *   JS 写入视图 → Rust 读取同一块内存 → 零拷贝。\n */"
+  }
+}

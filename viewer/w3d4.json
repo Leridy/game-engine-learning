@@ -1,0 +1,121 @@
+{
+  "title": "W3D4: 动画混合与状态机",
+  "chapters": [
+    {
+      "id": "D3-4-1",
+      "title": "动画混合基础",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "为什么需要动画混合"},
+        {"type": "paragraph", "text": "动画混合（Animation Blending）是将多个动画的输出按权重组合的过程。没有混合，动画之间的切换会是生硬的跳切（Cut）。混合使得角色可以从\"行走\"平滑过渡到\"跑步\"，或者同时播放\"行走\"和\"挥手\"。"},
+        {"type": "paragraph", "text": "最基本的混合公式："},
+        {"type": "code-block", "language": "typescript", "code": "// 动画混合公式\n// 对于每个骨骼的每个属性:\nfinalValue = valueA * weightA + valueB * weightB\n\n// 多动画混合（权重归一化）:\nfinalValue = sum(value[i] * weight[i])\n// 其中 sum(weight[i]) = 1.0\n\n// 对于四元数旋转，使用加权 slerp 或 NLerp:\nfinalRotation = Quat.normalize(\n  Quat.scale(q0, w0) + Quat.scale(q1, w1)\n)"},
+        {"type": "heading", "level": 3, "text": "PoseOutput 与混合状态缓冲区"},
+        {"type": "paragraph", "text": "Cocos 通过 PoseOutput 和 BlendStateBuffer 实现动画混合。当 enableTrsBlending 启用时，每个 AnimationState 的求值结果不会直接写入节点，而是写入混合缓冲区。所有状态求值完成后，缓冲区将混合结果应用到节点。"},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 255, "endLine": 265, "caption": "weight 属性：控制此动画状态在混合中的权重", "highlights": [255, 256, 257, 260, 261, 262, 263]},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 334, "endLine": 392, "caption": "initialize：初始化动画状态——创建 PoseOutput、创建求值器、设置事件", "highlights": [334, 370, 371, 373, 374, 375, 376, 377, 378, 379]},
+        {"type": "paragraph", "text": "initialize 方法中（第 371-379 行），如果存在 blendStateBuffer，就创建 PoseOutput 作为混合输出目标。PoseOutput 的 weight 属性控制此状态对最终姿态的贡献比例。"},
+        {"type": "note", "text": "动画混合的关键前提是所有被混合的动画使用相同的骨骼拓扑（相同的骨骼数量和层级结构）。混合不同骨骼结构的动画会导致不可预测的结果。"}
+      ]
+    },
+    {
+      "id": "D3-4-2",
+      "title": "Crossfade 混合与角度插值",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Crossfade 过渡"},
+        {"type": "paragraph", "text": "Crossfade（交叉淡入淡出）是最常用的动画过渡方式。在过渡期间，旧动画的权重从 1 降到 0（淡出），新动画的权重从 0 升到 1（淡入）。"},
+        {"type": "code-block", "language": "typescript", "code": "// Crossfade 过渡\n// duration: 过渡时长（秒）\n// elapsed: 已过去的时间\nconst t = Math.min(elapsed / duration, 1.0);\n\n// 旧动画权重：从 1 到 0\noldState.weight = 1.0 - t;\n\n// 新动画权重：从 0 到 1\nnewState.weight = t;\n\n// 每帧求值时，两个状态分别乘以各自权重后加到混合缓冲区"},
+        {"type": "heading", "level": 3, "text": "Cocos 的 doPlayOrCrossFade"},
+        {"type": "paragraph", "text": "SkeletalAnimation 的 doPlayOrCrossFade 方法处理动画切换。在烘焙模式下直接替换，在实时模式下通过动画管理器执行 Crossfade："},
+        {"type": "code-reference", "file": "cocos/3d/skeletal-animation/skeletal-animation.ts", "startLine": 325, "endLine": 336, "caption": "doPlayOrCrossFade：烘焙模式下直接替换状态，实时模式下调用父类的 Crossfade", "highlights": [325, 326, 327, 328, 330, 331, 332, 334]},
+        {"type": "heading", "level": 3, "text": "四元数旋转的最短路径"},
+        {"type": "paragraph", "text": "旋转插值的一个重要问题是\"最短路径\"。四元数 q 和 -q 表示相同的旋转，但 slerp(q, -q, 0.5) 会绕远路旋转 180 度而非 0 度。"},
+        {"type": "code-block", "language": "typescript", "code": "// 最短路径四元数插值\nfunction shortestPathSlerp(a: Quat, b: Quat, t: number): Quat {\n  let dot = Quat.dot(a, b);\n  \n  // 如果点积为负，翻转 b 以走最短路径\n  if (dot < 0) {\n    b = Quat.negate(b);\n    dot = -dot;\n  }\n  \n  // 如果四元数几乎相同，使用线性插值避免除零\n  if (dot > 0.9995) {\n    return Quat.normalize(Quat.lerp(a, b, t));\n  }\n  \n  // 标准 slerp\n  const theta = Math.acos(dot);\n  const sinTheta = Math.sin(theta);\n  return Quat.add(\n    Quat.scale(a, Math.sin((1 - t) * theta) / sinTheta),\n    Quat.scale(b, Math.sin(t * theta) / sinTheta)\n  );\n}"},
+        {"type": "heading", "level": 3, "text": "Spine 的混合"},
+        {"type": "paragraph", "text": "Spine 使用 setMix 配置动画之间的过渡时间。当从动画 A 切换到动画 B 时，Spine 运行时会自动执行 Crossfade："},
+        {"type": "code-reference", "file": "cocos/spine/skeleton.ts", "startLine": 1504, "endLine": 1513, "caption": "setMix：设置两个动画之间的混合时间", "highlights": [1504, 1505, 1506, 1509, 1510]},
+        {"type": "note", "text": "Crossfade 的时长选择很关键：太短会导致视觉跳切，太长会导致\"双重曝光\"效果（两个姿态叠加看起来不自然）。一般 0.2-0.5 秒是常见的过渡时长。"}
+      ]
+    },
+    {
+      "id": "D3-4-3",
+      "title": "叠加混合与层混合",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "叠加混合（Additive Blending）"},
+        {"type": "paragraph", "text": "叠加混合不是在两个动画之间插值，而是将一个动画的增量叠加到另一个动画上。典型应用：在跑步动画上叠加呼吸动画、受伤动画或瞄准动画。"},
+        {"type": "code-block", "language": "typescript", "code": "// 叠加混合\n// additiveClip: 叠加动画（存储的是相对于参考姿态的增量）\n// baseClip: 基础动画\n// refPose: 参考姿态（通常是 bind pose 或动画第一帧）\n\n// 叠加动画的值已经是增量: delta = current - refPose\n// 最终姿态 = 基础姿态 + 增量 * 权重\nfor (let i = 0; i < bones.length; i++) {\n  finalPos[i] = basePos[i] + additiveDelta[i] * weight;\n  finalRot[i] = Quat.multiply(baseRot[i], Quat.slerp(Quat.IDENTITY, additiveRotDelta[i], weight));\n}"},
+        {"type": "paragraph", "text": "Cocos 的 AnimationClip 通过 AdditiveSettings 支持叠加动画："},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 1027, "endLine": 1036, "caption": "AdditiveSettings：叠加动画配置——enabled 标志和参考剪辑 refClip", "highlights": [1027, 1028, 1030, 1032, 1033]},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 250, "endLine": 255, "caption": "isAdditive_experimental：判断此剪辑是否为叠加动画", "highlights": [250, 253, 254]},
+        {"type": "heading", "level": 3, "text": "层混合（Layered Blending）"},
+        {"type": "paragraph", "text": "层混合将动画分成多个层（Layer），每层有独立的权重和遮罩（Mask）。高层覆盖低层，遮罩控制哪些骨骼受该层影响。"},
+        {"type": "table", "headers": ["层", "权重", "遮罩", "说明"], "rows": [
+          ["Layer 0（基础层）", "1.0", "全身", "行走/跑步等全身动画"],
+          ["Layer 1（上半身）", "1.0", "脊柱+手臂", "射击/挥手等上半身动画"],
+          ["Layer 2（面部）", "0.8", "面部骨骼", "表情动画"]
+        ]},
+        {"type": "paragraph", "text": "Cocos 的 AnimationMask 定义了哪些骨骼受动画影响。在 createEvaluator 时，mask 会过滤掉被遮蔽的 Track："},
+        {"type": "code-reference", "file": "cocos/animation/animation-clip.ts", "startLine": 390, "endLine": 394, "caption": "createEvaluator 中的 mask 过滤：被遮蔽的 Track 绑定将返回 undefined", "highlights": [390, 391, 392, 393]},
+        {"type": "heading", "level": 3, "text": "层权重管理"},
+        {"type": "paragraph", "text": "AnimationController 提供了层权重的运行时控制接口："},
+        {"type": "code-reference", "file": "cocos/animation/marionette/animation-controller.ts", "startLine": 277, "endLine": 296, "caption": "getLayerWeight/setLayerWeight：获取和设置动画图层级权重", "highlights": [277, 281, 282, 284, 290, 292, 293, 295]},
+        {"type": "note", "text": "叠加混合和层混合的组合可以实现非常复杂的动画效果。例如：下半身播放行走动画（Layer 0），上半身叠加射击动画（Layer 1 Additive），同时面部播放表情动画（Layer 2）。"}
+      ]
+    },
+    {
+      "id": "D3-4-4",
+      "title": "动画状态机（ASM）",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "动画状态机的概念"},
+        {"type": "paragraph", "text": "动画状态机（Animation State Machine，ASM）是管理动画状态和过渡的有向图。每个节点是一个状态（播放某个动画或混合），边是过渡条件。运行时根据条件触发过渡，实现动画的自动切换。"},
+        {"type": "code-block", "language": "typescript", "code": "// 动画状态机示例\ninterface AnimationState {\n  name: string;\n  clip: AnimationClip;\n  loop: boolean;\n  speed: number;\n}\n\ninterface Transition {\n  from: AnimationState;\n  to: AnimationState;\n  duration: number;       // Crossfade 时长\n  conditions: Condition[]; // 过渡条件\n  exitTime?: number;       // 退出时间（归一化）\n  hasExitTime: boolean;    // 是否依赖退出时间\n}\n\ninterface Condition {\n  parameter: string;   // 参数名\n  operator: '==' | '>' | '<' | '>=' | '<=';\n  value: number | boolean | string;\n}"},
+        {"type": "heading", "level": 3, "text": "状态机的类型"},
+        {"type": "list", "items": [
+          "有限状态机（FSM）：状态数量有限，过渡条件简单，适合简单角色",
+          "分层状态机（HFSM）：状态可以包含子状态机，支持抽象和复用",
+          "行为树（BT）：树状结构，节点按优先级执行，适合 AI 决策",
+          "动画图（Animation Graph）：Cocos 3.7+ 的新系统，支持状态机+混合树"
+        ]},
+        {"type": "heading", "level": 3, "text": "AnimationState 的状态管理"},
+        {"type": "paragraph", "text": "Cocos 的 AnimationState 是状态机中每个状态的运行时实例。它管理播放状态、时间进度和循环模式："},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 85, "endLine": 103, "caption": "AnimationState 类定义：管理单个动画状态的播放", "highlights": [85, 90, 91, 98, 99]},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 482, "endLine": 503, "caption": "update：每帧更新——计算延迟、累加时间、调用 process", "highlights": [482, 485, 486, 487, 496, 497, 498, 500, 502]},
+        {"type": "paragraph", "text": "update 方法处理延迟播放（_delayTime）、时间累加和首帧完美播放（_currentFramePlayed）。_process 方法根据 wrapMode 选择 simpleProcess（简单循环）或 process（完整包装逻辑）。"},
+        {"type": "heading", "level": 3, "text": "WrappedInfo 与循环模式"},
+        {"type": "paragraph", "text": "getWrappedInfo 是动画循环逻辑的核心。它根据 wrapMode 计算包装后的时间、方向和迭代次数："},
+        {"type": "code-reference", "file": "cocos/animation/animation-state.ts", "startLine": 648, "endLine": 716, "caption": "getWrappedInfo：根据 wrapMode 计算包装时间、方向和停止状态", "highlights": [648, 658, 660, 673, 674, 693, 694, 696, 699, 705, 706, 709, 710, 711, 712, 713]},
+        {"type": "paragraph", "text": "WrapMode 支持：Normal（播放一次）、Loop（循环）、PingPong（来回播放）、Reverse（反向播放）等模式，通过位掩码组合。"},
+        {"type": "note", "text": "在实际项目中，简单的角色动画通常只需要 5-10 个状态和 15-20 条过渡规则。过于复杂的状态机难以维护和调试。"}
+      ]
+    },
+    {
+      "id": "D3-4-5",
+      "title": "Marionette 动画图系统",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Cocos Marionette 概述"},
+        {"type": "paragraph", "text": "Marionette 是 Cocos Creator 3.7+ 引入的新动画系统，基于动画图（Animation Graph）。它比传统的 ASM 更强大，支持状态机、混合树、动画遮罩和变量驱动的过渡。"},
+        {"type": "paragraph", "text": "核心组件是 AnimationController，它将动画图应用到节点上："},
+        {"type": "code-reference", "file": "cocos/animation/marionette/animation-controller.ts", "startLine": 56, "endLine": 78, "caption": "AnimationController：动画控制器组件——管理动画图实例", "highlights": [56, 59, 66, 67, 68, 78]},
+        {"type": "heading", "level": 3, "text": "变量系统"},
+        {"type": "paragraph", "text": "Marionette 使用变量（Variable）驱动状态过渡。变量可以是 Float、Boolean、Trigger 或 Integer 类型，通过 setValue/getValue 在代码中控制："},
+        {"type": "code-reference", "file": "cocos/animation/marionette/animation-controller.ts", "startLine": 155, "endLine": 176, "caption": "setValue / setValue_experimental：设置动画图变量值以驱动过渡", "highlights": [155, 156, 157, 172, 173, 174, 175]},
+        {"type": "code-block", "language": "typescript", "code": "// 使用 AnimationController 控制动画\nconst controller = node.getComponent(AnimationController);\n\n// 设置速度变量，驱动 Idle/Walk/Run 的过渡\ncontroller.setValue('speed', 3.5);\n\n// 设置布尔变量\ncontroller.setValue('crouching', true);\n\n// 设置触发器（一次性信号）\ncontroller.setValue('attack', true);\n\n// 查询当前状态\nconst status = controller.getCurrentStateStatus(0);\nconsole.log(`当前动画: ${status?.clip?.name}, 进度: ${status?.progress}`);"},
+        {"type": "heading", "level": 3, "text": "状态查询与 Clip 覆盖"},
+        {"type": "paragraph", "text": "AnimationController 提供了丰富的运行时查询接口："},
+        {"type": "code-reference", "file": "cocos/animation/marionette/animation-controller.ts", "startLine": 216, "endLine": 274, "caption": "getCurrentStateStatus/getCurrentClipStatuses/getCurrentTransition：状态查询接口", "highlights": [216, 230, 243, 270]},
+        {"type": "paragraph", "text": "Clip 覆盖（overrideClips_experimental）允许在不修改动画图资产的情况下替换动画剪辑。例如，同一个动画图可以驱动不同角色，只需覆盖各自的动画剪辑："},
+        {"type": "code-reference", "file": "cocos/animation/marionette/animation-controller.ts", "startLine": 320, "endLine": 324, "caption": "overrideClips_experimental：覆盖动画图中的动画剪辑", "highlights": [320, 321, 322, 323]},
+        {"type": "heading", "level": 3, "text": "动画图实例化"},
+        {"type": "code-reference", "file": "cocos/animation/marionette/animation-controller.ts", "startLine": 91, "endLine": 113, "caption": "__preload：实例化动画图——支持 AnimationGraph 和 AnimationGraphVariant", "highlights": [91, 92, 96, 97, 98, 100, 101, 103, 106, 107, 108, 109, 111, 112]},
+        {"type": "paragraph", "text": "AnimationGraphVariant 是动画图的变体，它引用原始 AnimationGraph 并附加 Clip 覆盖映射。这实现了动画图资产的复用——多个角色共享同一个状态机结构，但使用各自的动画剪辑。"},
+        {"type": "note", "text": "Marionette 系统的编辑器界面支持可视化编辑状态机和混合树，极大降低了动画系统的配置门槛。建议新项目直接使用 Marionette 而非传统的 Animation 组件。"}
+      ]
+    }
+  ],
+  "files": {
+    "cocos/animation/animation-state.ts": "AnimationState 动画状态管理",
+    "cocos/animation/animation-clip.ts": "AnimationClip 叠加动画设置",
+    "cocos/animation/marionette/animation-controller.ts": "Marionette 动画控制器",
+    "cocos/3d/skeletal-animation/skeletal-animation.ts": "SkeletalAnimation Crossfade",
+    "cocos/spine/skeleton.ts": "Spine 动画混合（setMix）"
+  }
+}

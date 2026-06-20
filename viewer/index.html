@@ -173,6 +173,7 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
   <!-- Top Bar -->
   <div id="topbar">
     <button id="sidebar-toggle-btn" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer;padding:4px 8px;" title="Toggle sidebar (Ctrl+B)">&#9776;</button>
+    <select id="lesson-select" style="background:#3c3c3c;color:#ccc;border:1px solid #555;border-radius:4px;height:28px;font-size:12px;padding:0 8px;max-width:220px;cursor:pointer;outline:none;"></select>
     <div class="title" id="lesson-title">Loading...</div>
     <div class="spacer"></div>
     <div id="search-box">
@@ -242,21 +243,76 @@ const sidebarToggle = document.getElementById('sidebar-toggle');
 const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
 const divider = document.getElementById('divider');
 const copyBtn = document.getElementById('copy-btn');
+const lessonSelect = document.getElementById('lesson-select');
 
-// ===== Load Data =====
-fetch('lessons.json')
-  .then(r => r.json())
-  .then(data => {
-    lessonData = data;
-    loadProgress();
-    renderSidebar();
-    renderDocs();
-    updateProgress();
-    lessonTitle.textContent = data.title;
-  })
-  .catch(err => {
-    docsPanel.innerHTML = '<div style="padding:40px;color:#c00;">Failed to load lessons.json: ' + err.message + '</div>';
-  });
+// ===== Lesson Index =====
+const LESSONS = [
+  { file: 'lessons.json', group: 'W1: WebGPU', label: 'D1: WebGPU 基础' },
+  { file: 'w1d2.json', group: 'W1: WebGPU', label: 'D2: WGSL 着色器' },
+  { file: 'w1d3.json', group: 'W1: WebGPU', label: 'D3: Pipeline + BindGroup' },
+  { file: 'w1d4.json', group: 'W1: WebGPU', label: 'D4: 命令编码 + 实例化' },
+  { file: 'w1d5.json', group: 'W1: WebGPU', label: 'D5: Compute Shader' },
+  { file: 'w1weekend.json', group: 'W1: WebGPU', label: '周末: 竞品对标' },
+  { file: 'w2d1.json', group: 'W2: Rust/WASM', label: 'D1: Rust 基础' },
+  { file: 'w2d2.json', group: 'W2: Rust/WASM', label: 'D2: Rust 类型系统' },
+  { file: 'w2d3.json', group: 'W2: Rust/WASM', label: 'D3: WASM 编译链路' },
+  { file: 'w2d4.json', group: 'W2: Rust/WASM', label: 'D4: JS/WASM 通信' },
+  { file: 'w2d5.json', group: 'W2: Rust/WASM', label: 'D5: WASM 性能' },
+  { file: 'w2weekend.json', group: 'W2: Rust/WASM', label: '周末: 实战 Demo' },
+  { file: 'w3d1.json', group: 'W3: 骨骼动画', label: 'D1: 骨骼基础' },
+  { file: 'w3d2.json', group: 'W3: 骨骼动画', label: 'D2: 蒙皮 Skinning' },
+  { file: 'w3d3.json', group: 'W3: 骨骼动画', label: 'D3: 动画剪辑' },
+  { file: 'w3d4.json', group: 'W3: 骨骼动画', label: 'D4: 混合与状态机' },
+  { file: 'w3d5.json', group: 'W3: 骨骼动画', label: 'D5: 网格变形 + IK' },
+  { file: 'w3weekend.json', group: 'W3: 骨骼动画', label: '周末: 竞品对标' },
+  { file: 'w4d1.json', group: 'W4: 架构设计', label: 'D1: Cocos GFX' },
+  { file: 'w4d2.json', group: 'W4: 架构设计', label: 'D2: 渲染管线' },
+  { file: 'w4d3.json', group: 'W4: 架构设计', label: 'D3: 骨骼动画系统' },
+  { file: 'w4d4.json', group: 'W4: 架构设计', label: 'D4: 编辑器 + 脚本' },
+  { file: 'w4d5.json', group: 'W4: 架构设计', label: 'D5: 架构设计文档' },
+  { file: 'w4weekend.json', group: 'W4: 架构设计', label: '周末: 总结' },
+];
+
+// Build selector with optgroups
+let currentGroup = '';
+LESSONS.forEach(l => {
+  if (l.group !== currentGroup) {
+    const og = document.createElement('optgroup');
+    og.label = l.group;
+    lessonSelect.appendChild(og);
+    currentGroup = l.group;
+  }
+  const opt = document.createElement('option');
+  opt.value = l.file;
+  opt.textContent = l.label;
+  lessonSelect.lastElementChild.appendChild(opt);
+});
+
+// Restore last selected lesson from localStorage
+const savedLesson = localStorage.getItem('currentLesson') || 'lessons.json';
+lessonSelect.value = savedLesson;
+
+function loadLesson(file) {
+  fetch(file)
+    .then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); return r.json(); })
+    .then(data => {
+      lessonData = data;
+      localStorage.setItem('currentLesson', file);
+      loadProgress();
+      renderSidebar();
+      renderDocs();
+      updateProgress();
+      lessonTitle.textContent = data.title;
+    })
+    .catch(err => {
+      docsPanel.innerHTML = '<div style="padding:40px;color:#c00;">Failed to load ' + file + ': ' + err.message + '</div>';
+    });
+}
+
+lessonSelect.addEventListener('change', () => loadLesson(lessonSelect.value));
+
+// ===== Initial Load =====
+loadLesson(savedLesson);
 
 // ===== Progress (localStorage) =====
 function loadProgress() {

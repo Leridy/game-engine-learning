@@ -1,0 +1,129 @@
+{
+  "title": "W2D2: Rust 类型系统",
+  "chapters": [
+    {
+      "id": "D2-2-1",
+      "title": "结构体 — 数据的容器",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Rust 结构体基础"},
+        {"type": "paragraph", "text": "结构体（struct）是 Rust 中组织数据的主要方式，类似于 C 的 struct 或 TypeScript 的 interface。Rust 的结构体分为三类：经典结构体（具名字段）、元组结构体（位置字段）和单元结构体（无字段）。"},
+        {"type": "code-block", "language": "rust", "code": "// 经典结构体 — 游戏中最常用\nstruct Vec2 {\n    x: i32,\n    y: i32,\n}\n\n// 元组结构体 — 适合包装新类型（newtype pattern）\nstruct TileIndex(usize);\nstruct PixelCoord(f64, f64);\n\n// 单元结构体 — 用作标记类型\nstruct Player;\nstruct Enemy;"},
+        {"type": "heading", "level": 3, "text": "Miu2D 中的 Vec2 结构体"},
+        {"type": "paragraph", "text": "寻路模块中的 Vec2 是一个私有结构体（没有 pub），只在 pathfinder.rs 内部使用。它表示等距地图上的瓦片坐标："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 29, "endLine": 33, "caption": "Vec2 — 私有结构体，表示瓦片坐标", "highlights": [29]},
+        {"type": "paragraph", "text": "注意 Vec2 使用了 #[derive] 属性来自动实现常用 trait：Clone（可复制）、Copy（可按位复制）、Debug（可打印）、PartialEq 和 Eq（可比较）、Hash（可作为 HashMap 的键）。"},
+        {"type": "heading", "level": 3, "text": "impl 块 — 为结构体添加方法"},
+        {"type": "paragraph", "text": "Rust 使用 impl 块为结构体定义方法，类似于 TypeScript 的 class method。方法的第一个参数决定访问级别：&self（只读）、&mut self（可写）、self（获取所有权）。"},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 35, "endLine": 60, "caption": "Vec2 的 impl 块：构造器、坐标转换、距离计算", "highlights": [36, 44, 53]},
+        {"type": "paragraph", "text": "to_pixel 方法演示了 Rust 的元组返回：fn to_pixel(&self) -> (f64, f64)。Rust 支持返回多个值而无需定义额外结构体。"},
+        {"type": "heading", "level": 3, "text": "PathNode — 更复杂的结构体"},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 62, "endLine": 68, "caption": "PathNode — A* 算法的节点结构体", "highlights": [63, 64, 65, 66, 67]},
+        {"type": "table", "headers": ["字段", "类型", "含义"],
+         "rows": [
+           ["tile", "Vec2", "节点的瓦片坐标"],
+           ["f_cost", "f64", "总代价 f = g + h（A* 核心）"],
+           ["g_cost", "f64", "从起点到当前节点的实际代价"]
+         ]},
+        {"type": "note", "text": "Rust 的结构体字段默认是私有的。pub struct 只公开类型本身，字段仍需 pub 关键字。Miu2D 的 Vec2 没有 pub，说明它是模块内部实现细节，不会暴露给 JS。"}
+      ]
+    },
+    {
+      "id": "D2-2-2",
+      "title": "枚举 — 强大的类型状态机",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Rust 枚举 vs 其他语言"},
+        {"type": "paragraph", "text": "Rust 的枚举（enum）远比 C/TypeScript 的枚举强大。它可以携带数据，本质上是一个「代数数据类型」（ADT），每个变体可以有不同的字段。这使得枚举成为建模状态机的理想工具。"},
+        {"type": "code-block", "language": "rust", "code": "// C 风格枚举（Miu2D 使用这种）\nenum PathType {\n    PathOneStep = 0,\n    SimpleMaxNpcTry = 1,\n    PerfectMaxNpcTry = 2,\n    PerfectMaxPlayerTry = 3,\n    PathStraightLine = 4,\n}\n\n// Rust 独有的带数据枚举\nenum GameState {\n    Loading { progress: f32 },\n    Playing { score: u32, level: u32 },\n    Paused,\n    GameOver { reason: String },\n}"},
+        {"type": "heading", "level": 3, "text": "Miu2D 的 PathType 枚举"},
+        {"type": "paragraph", "text": "寻路模块定义了 5 种寻路策略，每种对应不同的算法和参数："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 17, "endLine": 26, "caption": "PathType — 寻路策略枚举，通过 wasm-bindgen 暴露给 JS", "highlights": [18, 19, 20]},
+        {"type": "table", "headers": ["变体", "值", "算法", "maxTry", "用途"],
+         "rows": [
+           ["PathOneStep", "0", "贪心步进", "10", "短距离移动"],
+           ["SimpleMaxNpcTry", "1", "贪心最佳优先", "100", "NPC 简单寻路"],
+           ["PerfectMaxNpcTry", "2", "A*", "100", "NPC 精确寻路"],
+           ["PerfectMaxPlayerTry", "3", "A*", "4000", "玩家长距离寻路"],
+           ["PathStraightLine", "4", "直线", "N/A", "飞行者忽略障碍"]
+         ]},
+        {"type": "heading", "level": 3, "text": "match 表达式 — 枚举的模式匹配"},
+        {"type": "paragraph", "text": "Rust 的 match 表达式可以对枚举进行穷尽匹配，编译器会确保你处理了所有变体："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 250, "endLine": 259, "caption": "match 分发不同寻路类型的 maxTry 值", "highlights": [250, 251, 252, 253, 254, 255]},
+        {"type": "paragraph", "text": "Rust 的 match 是表达式（有返回值），不是语句。编译器会检查是否遗漏了某个变体，这比 switch-case 安全得多。"},
+        {"type": "note", "text": "#[wasm_bindgen] 标注的枚举会自动生成对应的 JS 常量。在 JS 中可以直接使用 PathType.PerfectMaxPlayerTry 而不需要手动定义数字。"}
+      ]
+    },
+    {
+      "id": "D2-2-3",
+      "title": "Trait — Rust 的多态机制",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Trait 是什么"},
+        {"type": "paragraph", "text": "Trait（特征）是 Rust 实现多态的方式，类似于 TypeScript 的 interface 或 Java 的抽象类。它定义了一组方法签名，类型通过 impl Trait for Type 来实现。与 interface 不同的是，Rust 的 trait 支持默认实现。"},
+        {"type": "code-block", "language": "rust", "code": "// 定义 trait\ntrait Renderable {\n    fn render(&self);\n    fn bounding_box(&self) -> Rect;\n    \n    // 默认实现\n    fn is_visible(&self) -> bool {\n        true\n    }\n}\n\n// 为类型实现 trait\nimpl Renderable for Sprite {\n    fn render(&self) { /* ... */ }\n    fn bounding_box(&self) -> Rect { /* ... */ }\n}"},
+        {"type": "heading", "level": 3, "text": "Ord 和 PartialOrd — 排序 Trait"},
+        {"type": "paragraph", "text": "Miu2D 的 PathNode 需要放入 BinaryHeap（优先队列），因此必须实现排序相关的 trait。这是 Rust trait 系统最精妙的应用之一："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 70, "endLine": 92, "caption": "PathNode 的 Ord/PartialOrd 实现 — A* 优先队列的核心", "highlights": [70, 78, 84]},
+        {"type": "paragraph", "text": "注意 cmp 方法中的反转比较：other.f_cost.partial_cmp(&self.f_cost)。BinaryHeap 是最大堆，但 A* 需要弹出 f_cost 最小的节点，所以反转比较顺序。"},
+        {"type": "table", "headers": ["Trait", "用途", "PathNode 的实现"],
+         "rows": [
+           ["PartialEq", "相等比较", "基于 tile 坐标"],
+           ["Eq", "完全相等（无 NaN）", "标记 trait，无方法"],
+           ["PartialOrd", "部分排序", "委托给 cmp"],
+           ["Ord", "全排序", "反转 f_cost 比较"]
+         ]},
+        {"type": "heading", "level": 3, "text": "#[derive] 自动实现"},
+        {"type": "paragraph", "text": "Rust 允许通过 #[derive] 属性自动实现常见的 trait。Vec2 使用了 derive 来自动生成 Clone、Copy、Debug、PartialEq、Eq、Hash 的实现，避免手写样板代码："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 29, "endLine": 30, "caption": "#[derive] 为 Vec2 自动生成 6 个 trait 实现", "highlights": [29]},
+        {"type": "note", "text": "Ord 和 PartialOrd 不能 derive，因为它们的行为取决于业务逻辑。PathNode 需要反转比较顺序才能正确工作于 BinaryHeap 中，这是手写实现的典型场景。"}
+      ]
+    },
+    {
+      "id": "D2-2-4",
+      "title": "泛型 — 零成本抽象",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Rust 泛型基础"},
+        {"type": "paragraph", "text": "泛型（Generics）允许编写适用于多种类型的代码。与 TypeScript 的泛型不同，Rust 的泛型在编译时会进行「单态化」（Monomorphization）—— 为每种具体类型生成专门的代码，运行时零开销。"},
+        {"type": "code-block", "language": "rust", "code": "// 泛型函数\nfn max_value<T: PartialOrd>(a: T, b: T) -> T {\n    if a > b { a } else { b }\n}\n\n// 单态化后等价于：\nfn max_value_i32(a: i32, b: i32) -> i32 { ... }\nfn max_value_f64(a: f64, b: f64) -> f64 { ... }"},
+        {"type": "heading", "level": 3, "text": "Trait Bound — 泛型约束"},
+        {"type": "paragraph", "text": "泛型参数可以通过 trait bound 约束可接受的类型。Rust 的标准库大量使用这一模式："},
+        {"type": "code-block", "language": "rust", "code": "// T 必须实现 PartialOrd（可比较）\nfn find_min<T: PartialOrd>(slice: &[T]) -> &T {\n    let mut min = &slice[0];\n    for item in &slice[1..] {\n        if item < min { min = item; }\n    }\n    min\n}\n\n// 多个 trait bound 使用 + 语法\nfn process<T: Clone + Debug + Send>(data: &T) {\n    println!(\"{:?}\", data);\n    let _copy = data.clone();\n}"},
+        {"type": "heading", "level": 3, "text": "泛型集合在 Miu2D 中的使用"},
+        {"type": "paragraph", "text": "虽然 Miu2D 的 pathfinder.rs 没有显式定义泛型函数，但它大量使用了泛型集合类型："},
+        {"type": "table", "headers": ["类型", "泛型参数", "用途"],
+         "rows": [
+           ["HashMap<K, V>", "HashMap<Vec2, Vec2>", "记录 A* 的 came_from 映射"],
+           ["HashMap<K, V>", "HashMap<Vec2, f64>", "记录 A* 的 cost_so_far"],
+           ["HashSet<T>", "HashSet<Vec2>", "记录已访问节点"],
+           ["BinaryHeap<T>", "BinaryHeap<PathNode>", "A* 优先队列"],
+           ["Vec<T>", "Vec<u8>", "障碍物位图"],
+           ["Vec<T>", "Vec<i32>", "返回路径坐标"]
+         ]},
+        {"type": "heading", "level": 3, "text": "where 子句 — 复杂约束"},
+        {"type": "paragraph", "text": "当 trait bound 很长时，可以使用 where 子句提高可读性："},
+        {"type": "code-block", "language": "rust", "code": "// trait bound 写法\nfn complex<T: Clone + Debug + PartialEq + Send + Sync>(x: T) { ... }\n\n// where 子句写法（更清晰）\nfn complex<T>(x: T)\nwhere\n    T: Clone + Debug + PartialEq + Send + Sync,\n{\n    // ...\n}"},
+        {"type": "note", "text": "Rust 泛型的单态化意味着泛型代码不会有任何运行时开销。编译器会为每种使用的具体类型生成一份专用代码，这与 C++ 模板的行为一致。代价是编译时间和二进制体积会增大。"}
+      ]
+    },
+    {
+      "id": "D2-2-5",
+      "title": "Option 与 Result — 安全的错误处理",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "没有 null 的世界"},
+        {"type": "paragraph", "text": "Rust 没有 null 或 undefined。取而代之的是 Option<T> 枚举，它强制你处理「值不存在」的情况。这消除了空指针异常这类运行时错误。"},
+        {"type": "code-block", "language": "rust", "code": "enum Option<T> {\n    Some(T),  // 有值\n    None,     // 无值\n}\n\n// 使用示例\nfn find_entity(id: u32) -> Option<Entity> {\n    if id == 0 {\n        None  // 显式表示未找到\n    } else {\n        Some(Entity { id, x: 100.0, y: 200.0 })\n    }\n}"},
+        {"type": "heading", "level": 3, "text": "Result<T, E> — 可恢复的错误"},
+        {"type": "paragraph", "text": "Rust 使用 Result<T, E> 枚举处理可恢复的错误，而不是 try-catch："},
+        {"type": "code-block", "language": "rust", "code": "enum Result<T, E> {\n    Ok(T),   // 成功\n    Err(E),  // 失败\n}\n\n// Miu2D lib.rs 中的 zstd 解压使用 Result\n#[wasm_bindgen]\npub fn zstd_decompress(data: &[u8]) -> Result<Vec<u8>, JsError> {\n    let mut decoder = StreamingDecoder::new(data)\n        .map_err(|e| JsError::new(&format!(\"zstd init error: {e}\")))?;\n    // ... ? 操作符自动传播错误\n}"},
+        {"type": "heading", "level": 3, "text": "? 操作符 — 优雅的错误传播"},
+        {"type": "paragraph", "text": "? 操作符是 Rust 错误处理的语法糖。如果 Result 是 Err，它会立即从当前函数返回；如果是 Ok，它会解包值并继续执行："},
+        {"type": "code-block", "language": "rust", "code": "// 等价于：\nlet decoder = match StreamingDecoder::new(data) {\n    Ok(d) => d,\n    Err(e) => return Err(JsError::new(&format!(\"zstd init error: {e}\"))),\n};\n\n// 使用 ? 操作符更简洁\nlet mut decoder = StreamingDecoder::new(data)\n    .map_err(|e| JsError::new(&format!(\"zstd init error: {e}\")))?;"},
+        {"type": "heading", "level": 3, "text": "在 PathFinder 中的 Option 使用"},
+        {"type": "paragraph", "text": "PartialOrd 的 partial_cmp 方法返回 Option<Ordering>，因为浮点数的 NaN 与任何值比较都返回 None。PathNode 通过 unwrap_or 处理这种情况："},
+        {"type": "code-reference", "file": "packages/engine-wasm/src/pathfinder.rs", "startLine": 85, "endLine": 91, "caption": "unwrap_or 处理浮点比较的 NaN 情况", "highlights": [87, 88, 89, 90]},
+        {"type": "note", "text": "Option 和 Result 是普通枚举，不是特殊语法。它们的方法链（map、and_then、unwrap_or 等）使 Rust 代码既安全又流畅。在 WASM 模块中，Result 可以直接映射为 JS 的异常抛出。"}
+      ]
+    }
+  ],
+  "files": {
+    "packages/engine-wasm/src/pathfinder.rs (lines 1-100)": "//! A* 寻路算法 - 高性能 Rust 实现\n//!\n//! C# Reference: JxqyHD/Engine/PathFinder.cs\n//!\n//! 支持的寻路类型：\n//! - PathOneStep: 简单贪心，约 10 步\n//! - SimpleMaxNpcTry: 贪心最佳优先搜索，maxTry=100\n//! - PerfectMaxNpcTry: A* 算法用于 NPC，maxTry=100\n//! - PerfectMaxPlayerTry: A* 算法用于玩家，maxTry=4000（C++ 为 16384）\n//! - PathStraightLine: 直线，忽略障碍物（用于飞行者）\n\nuse hashbrown::{HashMap, HashSet};\nuse std::cmp::Ordering;\nuse std::collections::BinaryHeap;\nuse wasm_bindgen::prelude::*;\n\n/// 寻路类型枚举\n#[wasm_bindgen]\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum PathType {\n    PathOneStep = 0,\n    SimpleMaxNpcTry = 1,\n    PerfectMaxNpcTry = 2,\n    PerfectMaxPlayerTry = 3,\n    PathStraightLine = 4,\n}\n\n/// 2D 向量/位置\n#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\nstruct Vec2 {\n    x: i32,\n    y: i32,\n}\n\nimpl Vec2 {\n    fn new(x: i32, y: i32) -> Self {\n        Self { x, y }\n    }\n\n    /// 转换为像素坐标（用于距离计算）\n    fn to_pixel(&self) -> (f64, f64) {\n        let col = self.x;\n        let row = self.y;\n        let px = ((row & 1) * 32 + 64 * col) as f64;\n        let py = (16 * row) as f64;\n        (px, py)\n    }\n\n    /// 计算到另一点的像素距离\n    fn pixel_distance(&self, other: &Vec2) -> f64 {\n        let (px1, py1) = self.to_pixel();\n        let (px2, py2) = other.to_pixel();\n        let dx = px2 - px1;\n        let dy = py2 - py1;\n        (dx * dx + dy * dy).sqrt()\n    }\n}\n\n/// A* 节点\n#[derive(Clone, Copy)]\nstruct PathNode {\n    tile: Vec2,\n    f_cost: f64,\n    g_cost: f64,\n}\n\nimpl PartialEq for PathNode {\n    fn eq(&self, other: &Self) -> bool {\n        self.tile == other.tile\n    }\n}\n\nimpl Eq for PathNode {}\n\nimpl PartialOrd for PathNode {\n    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {\n        Some(self.cmp(other))\n    }\n}\n\nimpl Ord for PathNode {\n    fn cmp(&self, other: &Self) -> Ordering {\n        other.f_cost.partial_cmp(&self.f_cost).unwrap_or(Ordering::Equal)\n    }\n}\n\n/// 寻路器状态（可复用以减少内存分配）\n#[wasm_bindgen]\npub struct PathFinder {\n    map_width: i32,\n    map_height: i32,\n    obstacle_bitmap: Vec<u8>,\n    hard_obstacle_bitmap: Vec<u8>,\n    dynamic_bitmap: Vec<u8>,\n}"
+  }
+}

@@ -1,0 +1,171 @@
+{
+  "title": "W1 周末: 竞品 WebGPU 对标",
+  "chapters": [
+    {
+      "id": "D1-W-1",
+      "title": "PixiJS v8 — 双后端架构",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "PixiJS 的 WebGPU 策略"},
+        {"type": "paragraph", "text": "PixiJS v8 是第一个全面支持 WebGPU 的主流 2D 渲染库。它采用了双后端架构：同时支持 WebGL 和 WebGPU，通过统一的 API 屏蔽底层差异。这种设计使得开发者可以在不修改代码的情况下切换渲染后端。"},
+        {"type": "heading", "level": 3, "text": "双后端架构设计"},
+        {"type": "table", "headers": ["层级", "WebGL 后端", "WebGPU 后端"],
+         "rows": [
+           ["着色器", "GLSL 300 es", "WGSL（自动转换）"],
+           ["纹理", "GLTexture", "GPUTexture"],
+           ["缓冲区", "GLBuffer", "GPUBuffer"],
+           ["管线", "状态机（无 PSO）", "GPURenderPipeline"],
+           ["命令", "立即执行", "CommandBuffer 录制"]
+         ]},
+        {"type": "heading", "level": 3, "text": "自动着色器转换"},
+        {"type": "paragraph", "text": "PixiJS v8 实现了一个着色器转换器，可以将 GLSL 着色器自动转换为 WGSL。这使得引擎可以维护一套着色器代码，同时支持两个后端。转换过程包括："},
+        {"type": "list", "items": [
+          "类型转换：vec4 → vec4<f32>，mat4 → mat4x4<f32>",
+          "函数转换：texture2D() → textureSample()",
+          "内置变量转换：gl_Position → @builtin(position)",
+          "绑定转换：uniform → @group(0) @binding(n) var<uniform>"
+        ]},
+        {"type": "heading", "level": 3, "text": "渲染管线优化"},
+        {"type": "paragraph", "text": "PixiJS v8 的 WebGPU 后端采用了批量渲染策略："},
+        {"type": "list", "items": [
+          "几何体合并：相同材质的精灵合并为一个大缓冲区",
+          "纹理图集：多个小纹理打包到一个大纹理中",
+          "实例化渲染：使用 drawIndexed(6, N) 批量绘制精灵",
+          "管线缓存：相同配置的管线对象复用"
+        ]},
+        {"type": "note", "text": "PixiJS v8 的双后端架构是一个很好的参考设计。它展示了如何在保持 API 兼容性的同时支持新旧图形 API。"}
+      ]
+    },
+    {
+      "id": "D1-W-2",
+      "title": "Cocos GFX — 跨平台图形抽象",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "GFX 的设计目标"},
+        {"type": "paragraph", "text": "Cocos 引擎的 GFX（Graphics Foundation）层是一个跨平台图形抽象层，支持 Vulkan、Metal、OpenGL ES、WebGL 和 WebGPU 等多种后端。它的设计目标是提供统一的 API，同时充分利用各平台的特性。"},
+        {"type": "heading", "level": 3, "text": "GFX 架构"},
+        {"type": "table", "headers": ["层级", "说明", "示例"],
+         "rows": [
+           ["应用层", "游戏逻辑和渲染组件", "Sprite、Camera、Light"],
+           ["渲染层", "渲染流程管理", "ForwardPipeline、RenderFlow"],
+           ["GFX 层", "图形 API 抽象", "Device、CommandBuffer、PipelineState"],
+           ["后端层", "具体平台实现", "WebGPUDevice、VulkanDevice、MetalDevice"]
+         ]},
+        {"type": "heading", "level": 3, "text": "核心抽象类"},
+        {"type": "table", "headers": ["类名", "职责", "WebGPU 实现"],
+         "rows": [
+           ["Device", "设备管理和资源创建", "WebGPUDevice"],
+           ["CommandBuffer", "命令录制", "WebGPUCommandBuffer"],
+           ["PipelineState", "管线状态管理", "WebGPUPipelineState"],
+           ["DescriptorSet", "资源绑定", "WebGPUDescriptorSet"],
+           ["Buffer", "缓冲区管理", "WebGPUBuffer"],
+           ["Texture", "纹理管理", "WebGPUTexture"],
+           ["Shader", "着色器管理", "WebGPUShader"],
+           ["Queue", "命令提交", "WebGPUQueue"]
+         ]},
+        {"type": "heading", "level": 3, "text": "WebGPU 后端的特殊处理"},
+        {"type": "list", "items": [
+          "着色器编译链：GLSL 450 → SPIR-V → WGSL",
+          "延迟管线创建：prepare() 方法在 draw call 时才创建原生管线",
+          "函数队列：渲染命令缓存为闭包函数，endRenderPass() 时统一执行",
+          "描述符集缓存：避免重复创建相同配置的 BindGroup"
+        ]},
+        {"type": "note", "text": "Cocos 的 GFX 层设计比 PixiJS 更复杂，因为它需要支持 3D 渲染、多线程和原生平台。但对于学习 WebGPU 的抽象设计，GFX 是一个很好的参考。"}
+      ]
+    },
+    {
+      "id": "D1-W-3",
+      "title": "Babylon.js — Snapshot Rendering",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "Babylon.js 的 WebGPU 引擎"},
+        {"type": "paragraph", "text": "Babylon.js 是一个功能完整的 3D 渲染引擎，它的 WebGPU 引擎（@babylonjs/core/Engines/webgpuEngine）是目前最成熟的 WebGPU 3D 引擎之一。Babylon.js 的 WebGPU 实现注重性能优化和功能完整性。"},
+        {"type": "heading", "level": 3, "text": "Snapshot Rendering — 快照渲染"},
+        {"type": "paragraph", "text": "Snapshot Rendering 是 Babylon.js WebGPU 引擎的核心优化技术。它的核心思想是：对于静态场景，将所有渲染命令录制到一个\"快照\"中，后续帧直接重放，避免重复录制。"},
+        {"type": "table", "headers": ["对比项", "传统渲染", "快照渲染"],
+         "rows": [
+           ["命令录制", "每帧重新录制", "首次录制，后续重放"],
+           ["CPU 开销", "高（每帧遍历场景树）", "极低（仅重放缓冲区）"],
+           ["适用场景", "动态场景", "静态或半静态场景"],
+           ["内存占用", "低", "较高（存储命令快照）"]
+         ]},
+        {"type": "heading", "level": 3, "text": "快照渲染的实现原理"},
+        {"type": "code-block", "language": "typescript", "code": "// Babylon.js 快照渲染伪代码\n\nclass SnapshotRendering {\n    private _snapshotBuffer: GPUCommandBuffer | null = null;\n    private _isDirty = true;\n\n    // 场景变化时标记为脏\n    markDirty(): void {\n        this._isDirty = true;\n    }\n\n    // 渲染一帧\n    renderFrame(): void {\n        if (this._isDirty || !this._snapshotBuffer) {\n            // 重新录制命令\n            const encoder = device.createCommandEncoder();\n            this.recordAllCommands(encoder);\n            this._snapshotBuffer = encoder.finish();\n            this._isDirty = false;\n        }\n\n        // 直接提交快照\n        device.queue.submit([this._snapshotBuffer!]);\n    }\n}"},
+        {"type": "heading", "level": 3, "text": "快照渲染的限制"},
+        {"type": "list", "items": [
+          "不适合高度动态的场景（每帧都需要重新录制）",
+          "内存占用较高（需要存储完整的命令缓冲区）",
+          "不支持动态 Uniform 数据（需要使用 Storage Buffer 或动态偏移）",
+          "场景变化时需要重新录制，可能导致帧率波动"
+        ]},
+        {"type": "heading", "level": 3, "text": "Babylon.js 的其他 WebGPU 优化"},
+        {"type": "table", "headers": ["优化技术", "说明"],
+         "rows": [
+           ["Uniform Buffer 池化", "预分配大块 Uniform Buffer，通过偏移量分配子区域"],
+           ["纹理压缩", "支持 BC/ASTC/ETC 等 GPU 纹理压缩格式"],
+           ["多线程渲染", "Web Worker 并行录制命令缓冲区"],
+           ["Indirect Drawing", "使用 GPU Buffer 存储绘制参数，GPU 决定绘制数量"]
+         ]},
+        {"type": "note", "text": "Babylon.js 的快照渲染是一个很有启发性的优化思路。对于 UI 渲染、建筑可视化等静态场景较多的应用，可以显著降低 CPU 开销。"}
+      ]
+    },
+    {
+      "id": "D1-W-4",
+      "title": "三大引擎 WebGPU 实现对比",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "架构设计对比"},
+        {"type": "table", "headers": ["对比维度", "PixiJS v8", "Cocos GFX", "Babylon.js"],
+         "rows": [
+           ["定位", "2D 渲染库", "跨平台游戏引擎", "3D 渲染引擎"],
+           ["后端支持", "WebGL + WebGPU", "Vulkan/Metal/GL/WebGPU", "WebGL + WebGPU"],
+           ["着色器策略", "自动 GLSL→WGSL 转换", "GLSL 450→SPIR-V→WGSL", "原生 WGSL + GLSL 兼容"],
+           ["管线管理", "简单缓存", "延迟创建 + prepare()", "快照渲染 + 缓存"],
+           ["命令模型", "立即执行", "延迟函数队列", "命令缓冲区录制"],
+           ["批处理", "几何体合并", "Batcher2D", "自动合批"]
+         ]},
+        {"type": "heading", "level": 3, "text": "性能特征对比"},
+        {"type": "table", "headers": ["场景", "PixiJS v8", "Cocos GFX", "Babylon.js"],
+         "rows": [
+           ["2D 精灵（10000个）", "优秀", "良好", "一般"],
+           ["3D 场景（复杂）", "不支持", "优秀", "优秀"],
+           ["静态场景", "良好", "良好", "优秀（快照）"],
+           ["动态场景", "优秀", "良好", "良好"],
+           ["GPU 计算", "有限支持", "良好", "优秀"]
+         ]},
+        {"type": "heading", "level": 3, "text": "学习价值"},
+        {"type": "list", "items": [
+          "PixiJS v8：学习 2D 渲染优化和着色器自动转换",
+          "Cocos GFX：学习跨平台图形抽象和延迟执行模型",
+          "Babylon.js：学习快照渲染和高级 GPU 优化技术"
+        ]},
+        {"type": "heading", "level": 3, "text": "WebGPU 生态现状"},
+        {"type": "paragraph", "text": "截至 2024 年，WebGPU 仍处于早期阶段。Chrome 已经默认启用，Firefox 和 Safari 仍在开发中。各引擎的 WebGPU 实现也在不断优化中。建议关注各引擎的 GitHub 仓库，跟踪最新的 WebGPU 相关提交。"},
+        {"type": "note", "text": "WebGPU 的标准化工作仍在进行中。建议关注 W3C 的 GPU for the Web 工作组，了解最新的规范变更和 API 更新。"}
+      ]
+    },
+    {
+      "id": "D1-W-5",
+      "title": "周末练习 — 设计你自己的 WebGPU 抽象层",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "练习目标"},
+        {"type": "paragraph", "text": "通过本周的学习，你已经了解了 WebGPU 的核心概念和各引擎的实现方式。现在，尝试设计一个简单的 WebGPU 抽象层，实践所学知识。"},
+        {"type": "heading", "level": 3, "text": "练习要求"},
+        {"type": "list", "items": [
+          "1. 设计一个 Device 抽象类，封装 GPU 设备和资源创建",
+          "2. 实现一个简单的 CommandBuffer，支持录制渲染命令",
+          "3. 设计 PipelineState 缓存机制，避免重复创建管线",
+          "4. 实现一个基础的 Batcher，支持 2D 精灵批处理",
+          "5. 添加 Compute Shader 支持，实现一个简单的粒子系统"
+        ]},
+        {"type": "heading", "level": 3, "text": "参考架构"},
+        {"type": "code-block", "language": "typescript", "code": "// 你的 WebGPU 抽象层设计\nabstract class Device {\n    abstract createBuffer(info: BufferInfo): Buffer;\n    abstract createTexture(info: TextureInfo): Texture;\n    abstract createShader(info: ShaderInfo): Shader;\n    abstract createPipelineState(info: PipelineStateInfo): PipelineState;\n    abstract createCommandBuffer(): CommandBuffer;\n}\n\nabstract class CommandBuffer {\n    abstract begin(renderPass?: RenderPass): void;\n    abstract end(): void;\n    abstract beginRenderPass(rp: RenderPass, fb: Framebuffer): void;\n    abstract endRenderPass(): void;\n    abstract bindPipelineState(pso: PipelineState): void;\n    abstract bindDescriptorSet(set: number, ds: DescriptorSet): void;\n    abstract draw(inputAssembler: InputAssembler): void;\n}\n\nclass WebGPUDevice extends Device {\n    private _nativeDevice: GPUDevice;\n    private _pipelineCache: Map<string, GPURenderPipeline>;\n\n    createPipelineState(info: PipelineStateInfo): PipelineState {\n        const key = this._getPipelineKey(info);\n        if (this._pipelineCache.has(key)) {\n            return this._pipelineCache.get(key)!;\n        }\n        const pso = new WebGPUPipelineState(this._nativeDevice, info);\n        this._pipelineCache.set(key, pso);\n        return pso;\n    }\n}"},
+        {"type": "heading", "level": 3, "text": "进阶挑战"},
+        {"type": "list", "items": [
+          "实现多线程命令录制（使用 Web Worker）",
+          "添加快照渲染支持（参考 Babylon.js）",
+          "实现自动着色器转换（参考 PixiJS）",
+          "支持动态 Uniform 偏移（减少 BindGroup 数量）"
+        ]},
+        {"type": "note", "text": "这个练习的目的是加深对 WebGPU 抽象设计的理解。不需要实现完整的引擎，重点是理解各组件之间的关系和设计决策。"}
+      ]
+    }
+  ],
+  "files": {}
+}

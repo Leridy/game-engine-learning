@@ -1,0 +1,100 @@
+{
+  "title": "W4D5: 架构设计文档",
+  "chapters": [
+    {
+      "id": "D4-5-1",
+      "title": "技术选型：WebGPU + WGSL + Rust/WASM + ECS",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "技术栈选择的考量"},
+        {"type": "paragraph", "text": "自研游戏引擎的第一步是技术选型。这个决策会深刻影响引擎的性能上限、开发效率和生态兼容性。以下是基于 4 周学习成果做出的技术选型方案。"},
+        {"type": "heading", "level": 3, "text": "图形 API：WebGPU"},
+        {"type": "list", "items": [
+          "WebGPU 是 WebGL 的继任者，提供了更接近 Vulkan/Metal 的现代 API 设计",
+          "原生支持 Compute Shader，可用于粒子系统、骨骼动画、后处理等 GPU 计算场景",
+          "更好的多线程支持：通过 SharedArrayBuffer 实现多线程命令录制",
+          "浏览器兼容性：Chrome 113+、Firefox Nightly、Safari 17+ 已支持",
+          "原生端可通过 wgpu（Rust 库）在桌面和移动端运行，无需浏览器"
+        ]},
+        {"type": "heading", "level": 3, "text": "着色器语言：WGSL"},
+        {"type": "list", "items": [
+          "WGSL 是 WebGPU 的原生着色器语言，无需编译即可在 WebGPU 中运行",
+          "语法类似 Rust，类型系统严格，编译时检查更完善",
+          "支持 struct、array、binding 等现代特性",
+          "可通过 naga 工具与 SPIR-V、GLSL 互相转换",
+          "与 Rust 生态天然契合"
+        ]},
+        {"type": "heading", "level": 3, "text": "核心引擎语言：Rust + WebAssembly"},
+        {"type": "list", "items": [
+          "Rust 的内存安全和零成本抽象非常适合引擎开发",
+          "wgpu 库提供了 WebGPU 的 Rust 实现，跨平台支持优秀",
+          "通过 wasm-bindgen 可高效地与 JavaScript/TypeScript 交互",
+          "ECS 框架（如 bevy_ecs、hecs）在 Rust 生态中成熟",
+          "编译为 WASM 后在浏览器中性能接近原生"
+        ]},
+        {"type": "heading", "level": 3, "text": "架构模式：ECS（Entity-Component-System）"},
+        {"type": "list", "items": [
+          "数据驱动：组件数据按类型连续存储，缓存友好",
+          "组合优于继承：通过组合组件创建游戏对象，避免继承层次过深",
+          "天然支持并行：System 之间可以声明读写依赖，自动并行执行",
+          "序列化友好：组件数据是纯数据，易于序列化和网络同步",
+          "编辑器友好：Inspector 只需要遍历实体的组件列表"
+        ]},
+        {"type": "heading", "level": 3, "text": "技术栈总览"},
+        {"type": "table", "headers": ["层次", "技术选择", "备选方案"], "rows": [
+          ["图形 API", "WebGPU", "WebGL2（兼容层）"],
+          ["着色器", "WGSL", "GLSL（通过 naga 转译）"],
+          ["核心引擎", "Rust → WASM", "C++ → WASM"],
+          ["编辑器前端", "TypeScript + React/Vue", "Svelte"],
+          ["脚本系统", "Rhai / Lua（嵌入式）", "自定义 DSL"],
+          ["资源格式", "glTF 2.0 + 自定义二进制", "FBX + JSON"],
+          ["物理引擎", "Rapier（Rust）", "Box2D / Bullet"],
+          ["ECS 框架", "bevy_ecs / hecs", "自研"]
+        ]}
+      ]
+    },
+    {
+      "id": "D4-5-2",
+      "title": "渲染管线设计",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "管线架构概述"},
+        {"type": "paragraph", "text": "借鉴 Cocos Creator 的 Pipeline-Flow-Stage 三级架构，但做以下改进：Stage 之间的数据传递通过 RenderGraph（渲染图）自动管理，而非手动设置 RenderPass。这更接近现代引擎（如 Frostbite、Unreal）的做法。"},
+        {"type": "heading", "level": 3, "text": "渲染管线整体架构"},
+        {"type": "code-block", "language": "typescript", "code": "// 渲染管线架构设计\n//\n//  RenderGraph（渲染图）\n//  +-----------------------------------------------+\n//  |  ShadowPass ──> GBufferPass ──> LightingPass   |\n//  |                     |                           |\n//  |                     v                           |\n//  |               ForwardPass ──> UIPass            |\n//  |                     |                           |\n//  |                     v                           |\n//  |             PostProcessPass                     |\n//  |            (Bloom + Tonemap + FXAA)             |\n//  +-----------------------------------------------+\n//\n//  每个 Pass 声明：\n//  - 读取的资源（Texture / Buffer）\n//  - 写入的资源（RenderTarget / UAV）\n//  - 依赖的 Pass（自动推导执行顺序）"},
+        {"type": "heading", "level": 3, "text": "RenderGraph 设计"},
+        {"type": "code-block", "language": "rust", "code": "// Rust 实现的 RenderGraph 核心结构\nuse std::collections::HashMap;\n\nstruct RenderPassNode {\n    name: String,\n    reads: Vec<ResourceHandle>,\n    writes: Vec<ResourceHandle>,\n    execute: Box<dyn Fn(&mut CommandEncoder, &RenderContext)>,\n}\n\nstruct RenderGraph {\n    passes: Vec<RenderPassNode>,\n    resources: HashMap<ResourceHandle, RenderResource>,\n}\n\nimpl RenderGraph {\n    fn add_pass(&mut self, pass: RenderPassNode) {\n        self.passes.push(pass);\n    }\n\n    fn compile(&mut self) {\n        // 1. 拓扑排序：根据依赖关系确定执行顺序\n        // 2. 资源生命周期分析：确定每个资源的创建/销毁时机\n        // 3. 合并兼容的 Pass：减少 RenderPass 切换\n    }\n\n    fn execute(&self, device: &wgpu::Device, queue: &wgpu::Queue) {\n        let mut encoder = device.create_command_encoder(...);\n        for pass in &self.passes {\n            (pass.execute)(&mut encoder, &self.context);\n        }\n        queue.submit(std::iter::once(encoder.finish()));\n    }\n}"}
+      ]
+    },
+    {
+      "id": "D4-5-3",
+      "title": "骨骼动画系统设计",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "骨骼动画的分层设计"},
+        {"type": "paragraph", "text": "骨骼动画系统分为三层：数据层（AnimationClip + Track）、状态层（AnimationState + BlendTree）、输出层（PoseOutput + Skinning）。每一层独立演化，互不影响。"},
+        {"type": "heading", "level": 3, "text": "数据层：AnimationClip 与 Track"},
+        {"type": "code-block", "language": "rust", "code": "// 骨骼动画数据结构设计\nstruct AnimationClip {\n    name: String,\n    duration: f32,\n    sample_rate: u32,\n    tracks: Vec<Track>,\n    events: Vec<AnimationEvent>,\n}\n\nstruct Track {\n    target_path: String,      // 骨骼路径，如 \"Hips/Spine/Head\"\n    property: PropertyType,    // Position / Rotation / Scale\n    keyframes: KeyframeData,  // 密集采样或稀疏关键帧\n}\n\nenum KeyframeData {\n    Dense(Vec<f32>),           // 每帧一个值，适合烘焙动画\n    Sparse(Vec<SparseKey>),    // 稀疏关键帧，适合程序化动画\n}\n\nstruct SparseKey {\n    time: f32,\n    value: [f32; 4],\n    interpolation: InterpolationType, // Linear / Step / Cubic\n}"},
+        {"type": "heading", "level": 3, "text": "状态层：AnimationState 与 BlendTree"},
+        {"type": "code-block", "language": "rust", "code": "// 动画状态与混合树设计\nstruct AnimationState {\n    clip: Handle<AnimationClip>,\n    time: f32,\n    speed: f32,\n    weight: f32,\n    wrap_mode: WrapMode,\n    playback_range: (f32, f32),\n}\n\nstruct BlendTree {\n    parameter: String,         // 混合参数名（如 \"speed\"、\"direction\"）\n    nodes: Vec<BlendNode>,\n}\n\nenum BlendNode {\n    Clip(AnimationClip),\n    Blend1D {\n        parameter: String,\n        children: Vec<(f32, BlendNode)>,  // (threshold, node)\n    },\n    Blend2D {\n        param_x: String,\n        param_y: String,\n        children: Vec<([f32; 2], BlendNode)>,\n    },\n    Additive(AnimationClip, AnimationClip), // 叠加动画\n}"},
+        {"type": "heading", "level": 3, "text": "GPU Skinning 方案"},
+        {"type": "code-block", "language": "wgsl", "code": "// WGSL GPU Skinning 着色器设计\n@group(0) @binding(0) var<storage, read> joint_matrices: array<mat4x4<f32>>;\n@group(1) @binding(0) var joint_texture: texture_2d<f32>;\n@group(1) @binding(1) var joint_sampler: sampler;\n\nstruct VertexInput {\n    @location(0) position: vec3<f32>,\n    @location(1) normal: vec3<f32>,\n    @location(2) joints: vec4<u32>,    // 骨骼索引\n    @location(3) weights: vec4<f32>,   // 骨骼权重\n};\n\n@vertex\nfn vs_main(in: VertexInput) -> VertexOutput {\n    // 线性混合蒙皮（LBS）\n    var skinned_pos = vec4<f32>(0.0);\n    var skinned_norm = vec4<f32>(0.0);\n    for (var i = 0u; i < 4u; i++) {\n        let joint_idx = in.joints[i];\n        let weight = in.weights[i];\n        let matrix = joint_matrices[joint_idx];\n        skinned_pos += weight * (matrix * vec4<f32>(in.position, 1.0));\n        skinned_norm += weight * (matrix * vec4<f32>(in.normal, 0.0));\n    }\n    // ..."},
+        {"type": "note", "text": "GPU Skinning 是当前主流方案——将骨骼矩阵数组上传为 Storage Buffer 或纹理，由顶点着色器完成蒙皮计算。这比 CPU Skinning（逐顶点计算后上传）性能高数倍，尤其适合骨骼数量多、顶点量大的角色。"}
+      ]
+    },
+    {
+      "id": "D4-5-4",
+      "title": "编辑器设计",
+      "sections": [
+        {"type": "heading", "level": 2, "text": "编辑器的技术架构"},
+        {"type": "paragraph", "text": "编辑器采用前后端分离架构：前端使用 TypeScript + Web 框架构建 UI 面板，后端使用 Rust WASM 处理场景数据和引擎逻辑。两者通过 Web Worker 和 postMessage 通信，编辑器预览和游戏运行共用同一个 WASM 引擎实例。"},
+        {"type": "heading", "level": 3, "text": "编辑器架构图"},
+        {"type": "code-block", "language": "typescript", "code": "// 编辑器架构设计\n//\n//  主进程 (Main Thread)\n//  +------------------------------------+\n//  |  React/Vue UI                      |\n//  |  +----------+ +-----------------+  |\n//  |  |Hierarchy | |  Inspector      |  |\n//  |  |Panel     | |  Panel          |  |\n//  |  +----------+ +-----------------+  |\n//  |  +----------+ +-----------------+  |\n//  |  |Asset     | |  Console        |  |\n//  |  |Browser   | |  Panel          |  |\n//  |  +----------+ +-----------------+  |\n//  +------------------------------------+\n//         |                  |\n//         v                  v\n//  Web Worker 1            Web Worker 2\n//  +--------------------+  +--------------------+\n//  | Scene Viewport     |  | Asset Pipeline     |\n//  | (WebGPU Canvas)    |  | (WASM: import,     |\n//  | WASM Engine Core   |  |  compress, build)  |\n//  +--------------------+  +--------------------+\n//         ^\n//         |\n//  Rust WASM Core\n//  +--------------------+\n//  | ECS World          |\n//  | Render Pipeline    |\n//  | Animation System   |\n//  | Physics (Rapier)   |\n//  +--------------------+"},
+        {"type": "heading", "level": 3, "text": "Scene 文件格式设计"},
+        {"type": "code-block", "language": "json", "code": "// 场景文件格式设计（JSON + 二进制混合）\n{\n  \"version\": \"1.0\",\n  \"nodes\": [\n    {\n      \"id\": \"node_001\",\n      \"name\": \"Player\",\n      \"parent\": null,\n      \"transform\": {\n        \"position\": [0, 0, 0],\n        \"rotation\": [0, 0, 0, 1],\n        \"scale\": [1, 1, 1]\n      },\n      \"components\": [\n        {\n          \"type\": \"SpriteRenderer\",\n          \"data\": {\n            \"sprite\": \"assets://player_idle.png\",\n            \"color\": [1, 1, 1, 1],\n            \"sortingOrder\": 0\n          }\n        },\n        {\n          \"type\": \"SkeletalAnimation\",\n          \"data\": {\n            \"defaultClip\": \"assets://player_walk.anim\",\n            \"useBaked\": true,\n            \"sockets\": [\n              { \"path\": \"R_Hand\", \"targetNode\": \"node_002\" }\n            ]\n          }\n        }\n      ]\n    }\n  ],\n  \"binaryData\": \"scene_001.bin\"  // 顶点、索引、动画数据等二进制块\n}"},
+        {"type": "heading", "level": 3, "text": "Inspector 的组件反射机制"},
+        {"type": "paragraph", "text": "Inspector 面板需要根据实体上的组件类型自动生成属性编辑界面。在 Rust WASM 中，通过 derive 宏为组件注册属性元数据（类型、范围、默认值），TypeScript 端根据元数据渲染对应的 UI 控件。"},
+        {"type": "code-block", "language": "rust", "code": "// 通过 derive 宏自动注册组件属性元数据\n#[derive(Component, Reflect, Serialize)]\nstruct Transform {\n    #[property(range = \"-1000..1000\", label = \"位置\")]\n    position: Vec3,\n\n    #[property(label = \"旋转\")]\n    rotation: Quat,\n\n    #[property(range = \"0.01..100\", label = \"缩放\")]\n    scale: Vec3,\n}\n\n#[derive(Component, Reflect, Serialize)]\nstruct SpriteRenderer {\n    #[property(asset_type = \"sprite\", label = \"精灵\")]\n    sprite: Handle<Sprite>,\n\n    #[property(color, label = \"颜色\")]\n    color: Color,\n\n    #[property(range = \"-1000..1000\", label = \"排序\")]\n    sorting_order: i32,\n}"},
+        {"type": "note", "text": "编辑器的核心挑战不是 UI 实现，而是撤销/重做系统的设计。推荐使用 Command 模式：每个编辑操作封装为一个 Command 对象，支持 execute() 和 undo()，通过 CommandStack 管理历史记录。"}
+      ]
+    }
+  ],
+  "files": {}
+}
